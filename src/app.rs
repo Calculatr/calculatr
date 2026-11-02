@@ -15,7 +15,6 @@ pub struct App {
     pub should_quit: bool,
     pub env: Environment,
     pub render_mode: RenderMode,
-    /// Absoluter Index in `history` der aktuell markierten Zeile
     pub selected: Option<usize>,
 }
 
@@ -32,12 +31,10 @@ impl App {
     }
 }
 
-/// Zeilen, die ausgewählt werden dürfen (keine Leerzeilen, keine Mode-Meldungen)
 fn is_selectable(line: &str) -> bool {
     !line.trim().is_empty() && !line.starts_with("-- Mode")
 }
 
-/// Text, der beim Auswählen in den Input eingefügt wird
 fn insertable(line: &str) -> String {
     if let Some(cmd) = line.strip_prefix("> ") {
         cmd.trim().to_string()
@@ -98,14 +95,12 @@ pub fn run() -> io::Result<()> {
                 }
                 KeyCode::Down => {
                     if let Some(s) = app.selected {
-                        // None, wenn keine weitere Zeile folgt -> zurück zum Input
                         app.selected =
                             (s + 1..app.history.len()).find(|&i| is_selectable(&app.history[i]));
                     }
                 }
                 KeyCode::Enter => {
                     if let Some(s) = app.selected {
-                        // Nur einfügen, NICHT absenden
                         let text = insertable(&app.history[s]);
                         app.input.push_str(&text);
                         app.selected = None;

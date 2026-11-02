@@ -21,8 +21,6 @@ pub fn draw(f: &mut Frame, app: &App) {
     let history_height = chunks[0].height.saturating_sub(2) as usize;
     let total = app.history.len();
 
-    // Sichtbares Fenster: standardmässig die letzten Zeilen,
-    // bei Auswahl weiter oben scrollt das Fenster mit.
     let default_start = total.saturating_sub(history_height);
     let start_idx = match app.selected {
         Some(s) if s < default_start => s,
@@ -118,13 +116,11 @@ pub fn draw(f: &mut Frame, app: &App) {
 
         let mut line = Line::from(faded_spans);
         if is_selected {
-            // Hintergrund über die ganze Zeilenbreite
             line = line.style(Style::default().bg(Color::Rgb(50, 50, 80)));
         }
         styled_lines.push(line);
     }
 
-    // --- ab hier unverändert ---
     let mode_title = match app.render_mode {
         RenderMode::Decimal => Line::from(vec![
             Span::styled(" Calculatr ", Style::default().fg(theme.title)),
