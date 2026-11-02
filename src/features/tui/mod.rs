@@ -1,3 +1,4 @@
+pub mod completion;
 pub mod highlighter;
 pub mod theme;
 pub mod ui;
