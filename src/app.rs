@@ -6,13 +6,14 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, stdout};
 
-use crate::features::core;
+use crate::features::core::{self, Environment};
 use crate::features::tui;
 
 pub struct App {
     pub input: String,
     pub history: Vec<String>,
     pub should_quit: bool,
+    pub env: Environment,
 }
 
 impl App {
@@ -21,6 +22,7 @@ impl App {
             input: String::new(),
             history: Vec::new(),
             should_quit: false,
+            env: Environment::new(),
         }
     }
 }
@@ -41,7 +43,7 @@ pub fn run() -> io::Result<()> {
             && let Event::Key(key) = event::read()?
         {
             match key.code {
-                KeyCode::Char('q') => {
+                KeyCode::Esc => {
                     app.should_quit = true;
                 }
                 KeyCode::Char(c) => {
@@ -56,7 +58,7 @@ pub fn run() -> io::Result<()> {
 
                         app.history.push(format!("> {}", query));
 
-                        let result = core::evaluate(&query);
+                        let result = core::evaluate(&mut app.env, &query);
                         app.history.push(format!("  {}", result));
 
                         app.input.clear();

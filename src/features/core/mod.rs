@@ -3,6 +3,8 @@ pub mod evaluator;
 mod functions;
 pub mod parser;
 
-pub fn evaluate(input: &str) -> String {
-    evaluator::evaluate(input)
+pub use evaluator::Environment;
+
+pub fn evaluate(env: &mut Environment, input: &str) -> String {
+    evaluator::evaluate(env, input)
 }
