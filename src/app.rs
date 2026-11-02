@@ -6,7 +6,7 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 use std::io::{self, stdout};
 
-use crate::features::core::{self, Environment};
+use crate::features::core::{self, Environment, RenderMode};
 use crate::features::tui;
 
 pub struct App {
@@ -14,6 +14,7 @@ pub struct App {
     pub history: Vec<String>,
     pub should_quit: bool,
     pub env: Environment,
+    pub render_mode: RenderMode,
 }
 
 impl App {
@@ -23,6 +24,7 @@ impl App {
             history: Vec::new(),
             should_quit: false,
             env: Environment::new(),
+            render_mode: RenderMode::Symbolic,
         }
     }
 }
@@ -46,6 +48,14 @@ pub fn run() -> io::Result<()> {
                 KeyCode::Esc => {
                     app.should_quit = true;
                 }
+                KeyCode::F(2) => {
+                    app.render_mode = match app.render_mode {
+                        RenderMode::Symbolic => RenderMode::Decimal,
+                        RenderMode::Decimal => RenderMode::Symbolic,
+                    };
+                    app.history
+                        .push(format!("-- Mode: {:?} --", app.render_mode));
+                }
                 KeyCode::Char(c) => {
                     app.input.push(c);
                 }
@@ -53,16 +63,13 @@ pub fn run() -> io::Result<()> {
                     app.input.pop();
                 }
                 KeyCode::Enter => {
-                    if !app.input.is_empty() {
-                        let query = app.input.clone();
+                    let query = app.input.clone();
+                    app.history.push(format!("> {}", query));
 
-                        app.history.push(format!("> {}", query));
+                    let result = core::evaluate(&mut app.env, &query, app.render_mode);
+                    app.history.push(format!("  {}", result));
 
-                        let result = core::evaluate(&mut app.env, &query);
-                        app.history.push(format!("  {}", result));
-
-                        app.input.clear();
-                    }
+                    app.input.clear();
                 }
                 _ => {}
             }

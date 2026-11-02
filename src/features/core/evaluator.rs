@@ -91,9 +91,19 @@ impl Environment {
             Expr::Call(_, args) => args.iter().any(|a| self.depends_on(a, target, visited)),
         }
     }
+
+    pub fn get_expr(&self, name: &str) -> Option<&Expr> {
+        self.vars.get(name)
+    }
 }
 
-pub fn evaluate(env: &mut Environment, input: &str) -> String {
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RenderMode {
+    Decimal,
+    Symbolic,
+}
+
+pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> String {
     let cleaned = input.trim();
 
     if cleaned.is_empty() {
@@ -101,15 +111,25 @@ pub fn evaluate(env: &mut Environment, input: &str) -> String {
     }
 
     match parse_stmt(cleaned) {
-        Ok(Stmt::Expr(expr)) => match env.eval(&expr) {
-            Ok(v) => format!("= {}", v),
-            Err(e) => format!("= Error: {}", e),
+        Ok(Stmt::Expr(expr)) => match mode {
+            RenderMode::Decimal => match env.eval(&expr) {
+                Ok(v) => format!("= {}", v),
+                Err(e) => format!("= Error: {}", e),
+            },
+            RenderMode::Symbolic => {
+                format!("= {}", expr.to_string_pretty())
+            }
         },
-        Ok(Stmt::Assign(name, expr)) => match env.assign(&name, expr) {
+        Ok(Stmt::Assign(name, expr)) => match env.assign(&name, expr.clone()) {
             Err(e) => format!("= Error: {}", e),
-            Ok(()) => match env.eval(&Expr::Variable(name.clone())) {
-                Ok(v) => format!("{} = {}", name, v),
-                Err(e) => format!("{} saved ({})", name, e),
+            Ok(()) => match mode {
+                RenderMode::Decimal => match env.eval(&Expr::Variable(name.clone())) {
+                    Ok(v) => format!("{} = {}", name, v),
+                    Err(e) => format!("{} saved ({})", name, e),
+                },
+                RenderMode::Symbolic => {
+                    format!("{} = {}", name, expr.to_string_pretty())
+                }
             },
         },
         Err(e) => format!("= Error: {}", e),

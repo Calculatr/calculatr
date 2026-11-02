@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::features::core::RenderMode;
 use crate::features::tui::{highlighter::highlight, theme::Theme};
 use ratatui::{
     Frame,
@@ -66,7 +67,20 @@ pub fn draw(f: &mut Frame, app: &App) {
             let raw_spans = highlight(line_str, &theme);
             raw_spans
                 .into_iter()
-                .map(|s| Span::styled(s.content, Style::default().fg(Color::Rgb(140, 150, 170))))
+                .map(|s| {
+                    let color = if s.content == "("
+                        || s.content == ")"
+                        || s.content == "["
+                        || s.content == "]"
+                        || s.content == "{"
+                        || s.content == "}"
+                    {
+                        theme.bracket
+                    } else {
+                        Color::Rgb(140, 150, 170)
+                    };
+                    Span::styled(s.content, Style::default().fg(color))
+                })
                 .collect()
         };
 
@@ -95,19 +109,51 @@ pub fn draw(f: &mut Frame, app: &App) {
         styled_lines.push(Line::from(faded_spans));
     }
 
+    let mode_title = match app.render_mode {
+        RenderMode::Decimal => Line::from(vec![
+            Span::styled(" Calculatr ", Style::default().fg(theme.title)),
+            Span::styled("[", Style::default().fg(theme.bracket)),
+            Span::styled(" Decimal ", Style::default().fg(theme.input_text)),
+            Span::styled("]", Style::default().fg(theme.bracket)),
+            Span::styled(" - Symbolic  ", Style::default().fg(theme.title)),
+        ]),
+        RenderMode::Symbolic => Line::from(vec![
+            Span::styled(" Calculatr   Decimal - ", Style::default().fg(theme.title)),
+            Span::styled("[", Style::default().fg(theme.bracket)),
+            Span::styled(" Symbolic ", Style::default().fg(theme.input_text)),
+            Span::styled("]", Style::default().fg(theme.bracket)),
+            Span::styled(" ", Style::default().fg(theme.title)),
+        ]),
+    };
+
     let history_widget = Paragraph::new(styled_lines).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.border))
-            .title(Span::styled(
-                " Calculatr ",
-                Style::default().fg(theme.title),
-            )),
+            .title(mode_title),
     );
     f.render_widget(history_widget, chunks[0]);
 
     let input_spans = highlight(&app.input, &theme);
-    let input_widget = Paragraph::new(Line::from(input_spans)).block(
+    let styled_input_spans: Vec<Span> = input_spans
+        .into_iter()
+        .map(|s| {
+            let color = if s.content == "("
+                || s.content == ")"
+                || s.content == "["
+                || s.content == "]"
+                || s.content == "{"
+                || s.content == "}"
+            {
+                theme.bracket
+            } else {
+                s.style.fg.unwrap_or(theme.input_text)
+            };
+            Span::styled(s.content, Style::default().fg(color))
+        })
+        .collect();
+
+    let input_widget = Paragraph::new(Line::from(styled_input_spans)).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.border))

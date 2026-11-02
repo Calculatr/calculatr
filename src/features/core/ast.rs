@@ -39,3 +39,27 @@ pub enum Stmt {
     Assign(String, Expr),
     Expr(Expr),
 }
+
+impl Expr {
+    pub fn to_string_pretty(&self) -> String {
+        match self {
+            Expr::Number(n) => n.to_string(),
+            Expr::Constant(MathConstant::PI) => "pi".to_string(),
+            Expr::Constant(MathConstant::E) => "e".to_string(),
+            Expr::Variable(name) => name.clone(),
+            Expr::Neg(inner) => format!("-({})", inner.to_string_pretty()),
+            Expr::Add(l, r) => format!("({} + {})", l.to_string_pretty(), r.to_string_pretty()),
+            Expr::Sub(l, r) => format!("({} - {})", l.to_string_pretty(), r.to_string_pretty()),
+            Expr::Mul(l, r) => format!("{} * {}", l.to_string_pretty(), r.to_string_pretty()),
+            Expr::Div(l, r) => format!("({} / {})", l.to_string_pretty(), r.to_string_pretty()),
+            Expr::Call(name, args) => {
+                let args_str = args
+                    .iter()
+                    .map(|a| a.to_string_pretty())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{}({})", name, args_str)
+            }
+        }
+    }
+}
