@@ -8,6 +8,7 @@ use std::io::{self, stdout};
 
 use crate::features::core::{self, Environment, RenderMode};
 use crate::features::tui;
+use crate::features::tui::completion::{self, CompState};
 
 pub struct App {
     pub input: String,
@@ -16,6 +17,7 @@ pub struct App {
     pub env: Environment,
     pub render_mode: RenderMode,
     pub selected: Option<usize>,
+    pub comp: Option<CompState>,
 }
 
 impl App {
@@ -25,8 +27,9 @@ impl App {
             history: Vec::new(),
             should_quit: false,
             env: Environment::new(),
-            render_mode: RenderMode::Symbolic,
+            render_mode: RenderMode::Decimal,
             selected: None,
+            comp: None,
         }
     }
 }
@@ -44,6 +47,50 @@ fn insertable(line: &str) -> String {
     }
 }
 
+fn handle_tab(app: &mut App) {
+    let cands = core::completions(&app.env);
+    let (start, word) = completion::current_word(&app.input);
+
+    let (prefix, cycling) = match &app.comp {
+        Some(c) => (c.prefix.clone(), true),
+        None => (word.to_string(), false),
+    };
+
+    let matches = completion::matching(&cands, &prefix);
+    if matches.is_empty() {
+        app.comp = None;
+        return;
+    }
+
+    if !cycling {
+        if matches.len() == 1 {
+            let m = matches[0];
+            let mut text = m.name.clone();
+            if m.is_function {
+                text.push('(');
+            }
+            app.input.truncate(start);
+            app.input.push_str(&text);
+            return;
+        }
+        let lcp = completion::common_prefix(&matches);
+        if lcp.len() > prefix.len() {
+            app.input.truncate(start);
+            app.input.push_str(&lcp);
+            return;
+        }
+    }
+
+    let idx = match &app.comp {
+        Some(c) => (c.idx + 1) % matches.len(),
+        None => 0,
+    };
+    let name = matches[idx].name.clone();
+    app.input.truncate(start);
+    app.input.push_str(&name);
+    app.comp = Some(CompState { prefix, idx });
+}
+
 pub fn run() -> io::Result<()> {
     enable_raw_mode()?;
     stdout().execute(EnterAlternateScreen)?;
@@ -59,6 +106,10 @@ pub fn run() -> io::Result<()> {
         if event::poll(std::time::Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
         {
+            if key.code != KeyCode::Tab {
+                app.comp = None;
+            }
+
             match key.code {
                 KeyCode::Esc => {
                     if app.selected.is_some() {
@@ -75,6 +126,11 @@ pub fn run() -> io::Result<()> {
                     app.history
                         .push(format!("-- Mode: {:?} --", app.render_mode));
                     app.selected = None;
+                }
+                KeyCode::Tab => {
+                    if app.selected.is_none() {
+                        handle_tab(&mut app);
+                    }
                 }
                 KeyCode::Char(c) => {
                     app.selected = None;

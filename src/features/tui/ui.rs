@@ -1,5 +1,6 @@
 use crate::app::App;
-use crate::features::core::RenderMode;
+use crate::features::core::{RenderMode, completions};
+use crate::features::tui::completion::{current_word, matching};
 use crate::features::tui::{highlighter::highlight, theme::Theme};
 use ratatui::{
     Frame,
@@ -21,6 +22,8 @@ pub fn draw(f: &mut Frame, app: &App) {
     let history_height = chunks[0].height.saturating_sub(2) as usize;
     let total = app.history.len();
 
+    // Sichtbares Fenster: standardmässig die letzten Zeilen,
+    // bei Auswahl weiter oben scrollt das Fenster mit.
     let default_start = total.saturating_sub(history_height);
     let start_idx = match app.selected {
         Some(s) if s < default_start => s,
@@ -116,6 +119,7 @@ pub fn draw(f: &mut Frame, app: &App) {
 
         let mut line = Line::from(faded_spans);
         if is_selected {
+            // Hintergrund über die ganze Zeilenbreite
             line = line.style(Style::default().bg(Color::Rgb(50, 50, 80)));
         }
         styled_lines.push(line);
@@ -146,8 +150,9 @@ pub fn draw(f: &mut Frame, app: &App) {
     );
     f.render_widget(history_widget, chunks[0]);
 
+    // --- Input ---
     let input_spans = highlight(&app.input, &theme);
-    let styled_input_spans: Vec<Span> = input_spans
+    let mut styled_input_spans: Vec<Span> = input_spans
         .into_iter()
         .map(|s| {
             let color = if s.content == "("
@@ -165,11 +170,54 @@ pub fn draw(f: &mut Frame, app: &App) {
         })
         .collect();
 
+    // --- Autocompletion: Ghost-Text und Trefferliste ---
+    let cands = completions(&app.env);
+    let (_, word) = current_word(&app.input);
+    let (prefix, active_idx) = match &app.comp {
+        Some(c) => (c.prefix.as_str(), Some(c.idx)),
+        None => (word, None),
+    };
+    let matches = matching(&cands, prefix);
+
+    if app.selected.is_none() && app.comp.is_none() {
+        if let Some(first) = matches.first() {
+            if first.name.len() > word.len() {
+                let mut ghost = first.name[word.len()..].to_string();
+                if matches.len() == 1 && first.is_function {
+                    ghost.push('(');
+                }
+                styled_input_spans.push(Span::styled(ghost, Style::default().fg(Color::DarkGray)));
+            }
+        }
+    }
+
+    let mut title = vec![Span::styled(" Input ", Style::default().fg(theme.title))];
+    if matches.len() > 1 {
+        title.push(Span::styled("[", Style::default().fg(theme.bracket)));
+        for (i, m) in matches.iter().take(6).enumerate() {
+            if i > 0 {
+                title.push(Span::styled(" | ", Style::default().fg(Color::DarkGray)));
+            }
+            let style = if Some(i) == active_idx {
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::DarkGray)
+            };
+            title.push(Span::styled(m.name.clone(), style));
+        }
+        if matches.len() > 6 {
+            title.push(Span::styled(" …", Style::default().fg(Color::DarkGray)));
+        }
+        title.push(Span::styled("] ", Style::default().fg(theme.bracket)));
+    }
+
     let input_widget = Paragraph::new(Line::from(styled_input_spans)).block(
         Block::default()
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.border))
-            .title(Span::styled(" Input ", Style::default().fg(theme.title))),
+            .title(Line::from(title)),
     );
     f.render_widget(input_widget, chunks[1]);
 }

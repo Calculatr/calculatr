@@ -5,6 +5,8 @@ pub enum MathConstant {
 }
 
 impl MathConstant {
+    pub const NAMES: &[&str] = &["pi", "e"];
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "pi" => Some(Self::PI),

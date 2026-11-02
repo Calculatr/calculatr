@@ -95,6 +95,11 @@ impl Environment {
     pub fn get_expr(&self, name: &str) -> Option<&Expr> {
         self.vars.get(name)
     }
+
+    /// Namen aller definierten Variablen (für die Autocompletion)
+    pub fn var_names(&self) -> impl Iterator<Item = &String> {
+        self.vars.keys()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

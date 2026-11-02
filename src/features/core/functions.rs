@@ -1,3 +1,5 @@
+pub const NAMES: &[&str] = &["sin", "cos", "sqrt"];
+
 pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
     let f: fn(f64) -> f64 = match name {
         "sin" => f64::sin,
