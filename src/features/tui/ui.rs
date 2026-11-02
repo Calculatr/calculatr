@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::features::tui::{highlighter::highlight, theme::Theme};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
@@ -9,6 +10,7 @@ use ratatui::{
 
 pub fn draw(f: &mut Frame, app: &App) {
     let size = f.area();
+    let theme = Theme::cyberpunk();
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -36,34 +38,91 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     let num_lines = lines_to_render.len();
 
+    // History rendern mit unterschiedlichem Styling für Formeln vs. Ergebnisse
     let mut styled_lines = Vec::new();
     for (idx, line_str) in lines_to_render.iter().enumerate() {
         let dist_from_bottom = num_lines.saturating_sub(1 + idx);
 
-        let color = if line_str.is_empty() {
-            Color::Reset
-        } else if dist_from_bottom < (num_lines / 2) {
-            Color::Rgb(230, 230, 230)
+        if line_str.is_empty() {
+            styled_lines.push(Line::from(""));
+            continue;
+        }
+
+        // Berechne Fade-Helligkeit für den Hintergrund
+        let brightness_factor = if dist_from_bottom < (num_lines / 2) {
+            1.0
         } else {
             let fade_span = (num_lines / 2).max(1) as f32;
             let current_dist = (dist_from_bottom - (num_lines / 2)) as f32;
-            let factor = (1.0 - (current_dist / fade_span)).clamp(0.1, 1.0);
-
-            let val = (40.0 + (190.0 * factor)) as u8;
-            Color::Rgb(val, val, val)
+            (1.0 - (current_dist / fade_span)).clamp(0.1, 1.0)
         };
 
-        styled_lines.push(Line::from(Span::styled(
-            line_str.clone(),
-            Style::default().fg(color),
-        )));
+        // Unterscheiden zwischen Formel (startet mit ">") und Ergebnis
+        let is_result = line_str.trim_start().starts_with('=');
+
+        let spans = if is_result {
+            // ERGEBNIS: Hebt sich stark hervor (helle, kräftige Farbe)
+            vec![Span::styled(
+                line_str.clone(),
+                Style::default().fg(theme.number), // Nutzt die kräftige Nummer-Farbe aus dem Theme
+            )]
+        } else {
+            // FORMEL: Etwas dezenter / gedimmter
+            let raw_spans = highlight(line_str, &theme);
+            raw_spans
+                .into_iter()
+                .map(|s| {
+                    // Etwas dunkler machen als das Ergebnis, damit es im Hintergrund steht
+                    Span::styled(s.content, Style::default().fg(Color::Rgb(140, 150, 170)))
+                })
+                .collect()
+        };
+
+        // Fade-Effekt auf die Spans anwenden
+        let faded_spans: Vec<Span> = spans
+            .into_iter()
+            .map(|span| {
+                let original_color = span.style.fg.unwrap_or(theme.input_text);
+                let (r, g, b) = match original_color {
+                    Color::Cyan => (0, 255, 255),
+                    Color::Magenta => (255, 0, 255),
+                    Color::Green => (0, 255, 0),
+                    Color::Yellow => (255, 255, 0),
+                    Color::White => (255, 255, 255),
+                    Color::Rgb(r, g, b) => (r, g, b),
+                    _ => (180, 190, 210),
+                };
+
+                let nr = (r as f32 * brightness_factor) as u8;
+                let ng = (g as f32 * brightness_factor) as u8;
+                let nb = (b as f32 * brightness_factor) as u8;
+
+                Span::styled(span.content, Style::default().fg(Color::Rgb(nr, ng, nb)))
+            })
+            .collect();
+
+        styled_lines.push(Line::from(faded_spans));
     }
 
-    let history_widget = Paragraph::new(styled_lines)
-        .block(Block::default().borders(Borders::ALL).title(" Calculatr "));
+    // History Box mit Theme-Farben
+    let history_widget = Paragraph::new(styled_lines).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border))
+            .title(Span::styled(
+                " Calculatr ",
+                Style::default().fg(theme.title),
+            )),
+    );
     f.render_widget(history_widget, chunks[0]);
 
-    let input_widget = Paragraph::new(app.input.as_str())
-        .block(Block::default().borders(Borders::ALL).title(" Input "));
+    // Input Box mit Live-Highlighting
+    let input_spans = highlight(&app.input, &theme);
+    let input_widget = Paragraph::new(Line::from(input_spans)).block(
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(theme.border))
+            .title(Span::styled(" Input ", Style::default().fg(theme.title))),
+    );
     f.render_widget(input_widget, chunks[1]);
 }

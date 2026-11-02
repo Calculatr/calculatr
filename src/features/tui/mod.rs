@@ -1,3 +1,5 @@
+pub mod highlighter;
+pub mod theme;
 pub mod ui;
 
 use crate::app::App;

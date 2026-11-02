@@ -37,32 +37,32 @@ pub fn run() -> io::Result<()> {
     while !app.should_quit {
         terminal.draw(|f| tui::draw(f, &app))?;
 
-        if event::poll(std::time::Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? {
-                match key.code {
-                    KeyCode::Char('q') => {
-                        app.should_quit = true;
-                    }
-                    KeyCode::Char(c) => {
-                        app.input.push(c);
-                    }
-                    KeyCode::Backspace => {
-                        app.input.pop();
-                    }
-                    KeyCode::Enter => {
-                        if !app.input.is_empty() {
-                            let query = app.input.clone();
-                            app.history.push(format!("> {}", query));
-
-                            // Rechen-Kern aufrufen
-                            let result = core::evaluate(&query);
-                            app.history.push(result);
-
-                            app.input.clear();
-                        }
-                    }
-                    _ => {}
+        if event::poll(std::time::Duration::from_millis(100))?
+            && let Event::Key(key) = event::read()?
+        {
+            match key.code {
+                KeyCode::Char('q') => {
+                    app.should_quit = true;
                 }
+                KeyCode::Char(c) => {
+                    app.input.push(c);
+                }
+                KeyCode::Backspace => {
+                    app.input.pop();
+                }
+                KeyCode::Enter => {
+                    if !app.input.is_empty() {
+                        let query = app.input.clone();
+
+                        app.history.push(format!("> {}", query));
+
+                        let result = core::evaluate(&query);
+                        app.history.push(format!("  {}", result));
+
+                        app.input.clear();
+                    }
+                }
+                _ => {}
             }
         }
     }
