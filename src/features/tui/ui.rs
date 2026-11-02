@@ -4,7 +4,7 @@ use crate::features::tui::{highlighter::highlight, theme::Theme};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
-    style::{Color, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
@@ -19,29 +19,31 @@ pub fn draw(f: &mut Frame, app: &App) {
         .split(size);
 
     let history_height = chunks[0].height.saturating_sub(2) as usize;
-    let total_items = app.history.len();
+    let total = app.history.len();
 
-    let mut display_lines = Vec::new();
-    if history_height > total_items {
-        let padding = history_height - total_items;
-        for _ in 0..padding {
-            display_lines.push(String::new());
-        }
-    }
-    display_lines.extend(app.history.clone());
-
-    let lines_to_render = if display_lines.len() > history_height {
-        let start = display_lines.len() - history_height;
-        &display_lines[start..]
-    } else {
-        &display_lines
+    // Sichtbares Fenster: standardmässig die letzten Zeilen,
+    // bei Auswahl weiter oben scrollt das Fenster mit.
+    let default_start = total.saturating_sub(history_height);
+    let start_idx = match app.selected {
+        Some(s) if s < default_start => s,
+        _ => default_start,
     };
+    let end_idx = (start_idx + history_height).min(total);
+    let visible = &app.history[start_idx..end_idx];
 
-    let num_lines = lines_to_render.len();
+    let padding = history_height.saturating_sub(visible.len());
+    let num_lines = padding + visible.len();
 
-    let mut styled_lines = Vec::new();
-    for (idx, line_str) in lines_to_render.iter().enumerate() {
-        let dist_from_bottom = num_lines.saturating_sub(1 + idx);
+    let mut styled_lines: Vec<Line> = Vec::new();
+    for _ in 0..padding {
+        styled_lines.push(Line::from(""));
+    }
+
+    for (i, line_str) in visible.iter().enumerate() {
+        let abs_idx = start_idx + i;
+        let pos = padding + i;
+        let dist_from_bottom = num_lines.saturating_sub(1 + pos);
+        let is_selected = app.selected == Some(abs_idx);
 
         if line_str.is_empty() {
             styled_lines.push(Line::from(""));
@@ -58,14 +60,13 @@ pub fn draw(f: &mut Frame, app: &App) {
 
         let is_result = line_str.trim_start().starts_with('=');
 
-        let spans = if is_result {
+        let spans: Vec<Span> = if is_result {
             vec![Span::styled(
                 line_str.clone(),
                 Style::default().fg(theme.number),
             )]
         } else {
-            let raw_spans = highlight(line_str, &theme);
-            raw_spans
+            highlight(line_str, &theme)
                 .into_iter()
                 .map(|s| {
                     let color = if s.content == "("
@@ -87,28 +88,43 @@ pub fn draw(f: &mut Frame, app: &App) {
         let faded_spans: Vec<Span> = spans
             .into_iter()
             .map(|span| {
-                let original_color = span.style.fg.unwrap_or(theme.input_text);
-                let (r, g, b) = match original_color {
-                    Color::Cyan => (0, 255, 255),
-                    Color::Magenta => (255, 0, 255),
-                    Color::Green => (0, 255, 0),
-                    Color::Yellow => (255, 255, 0),
-                    Color::White => (255, 255, 255),
-                    Color::Rgb(r, g, b) => (r, g, b),
-                    _ => (180, 190, 210),
-                };
+                if is_selected {
+                    Span::styled(
+                        span.content,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    let original_color = span.style.fg.unwrap_or(theme.input_text);
+                    let (r, g, b) = match original_color {
+                        Color::Cyan => (0, 255, 255),
+                        Color::Magenta => (255, 0, 255),
+                        Color::Green => (0, 255, 0),
+                        Color::Yellow => (255, 255, 0),
+                        Color::White => (255, 255, 255),
+                        Color::Rgb(r, g, b) => (r, g, b),
+                        _ => (180, 190, 210),
+                    };
 
-                let nr = (r as f32 * brightness_factor) as u8;
-                let ng = (g as f32 * brightness_factor) as u8;
-                let nb = (b as f32 * brightness_factor) as u8;
+                    let nr = (r as f32 * brightness_factor) as u8;
+                    let ng = (g as f32 * brightness_factor) as u8;
+                    let nb = (b as f32 * brightness_factor) as u8;
 
-                Span::styled(span.content, Style::default().fg(Color::Rgb(nr, ng, nb)))
+                    Span::styled(span.content, Style::default().fg(Color::Rgb(nr, ng, nb)))
+                }
             })
             .collect();
 
-        styled_lines.push(Line::from(faded_spans));
+        let mut line = Line::from(faded_spans);
+        if is_selected {
+            // Hintergrund über die ganze Zeilenbreite
+            line = line.style(Style::default().bg(Color::Rgb(50, 50, 80)));
+        }
+        styled_lines.push(line);
     }
 
+    // --- ab hier unverändert ---
     let mode_title = match app.render_mode {
         RenderMode::Decimal => Line::from(vec![
             Span::styled(" Calculatr ", Style::default().fg(theme.title)),
@@ -118,7 +134,7 @@ pub fn draw(f: &mut Frame, app: &App) {
             Span::styled(" - Symbolic  ", Style::default().fg(theme.title)),
         ]),
         RenderMode::Symbolic => Line::from(vec![
-            Span::styled(" Calculatr   Decimal - ", Style::default().fg(theme.title)),
+            Span::styled(" Calculatr    Decimal - ", Style::default().fg(theme.title)),
             Span::styled("[", Style::default().fg(theme.bracket)),
             Span::styled(" Symbolic ", Style::default().fg(theme.input_text)),
             Span::styled("]", Style::default().fg(theme.bracket)),

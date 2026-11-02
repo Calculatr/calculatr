@@ -15,6 +15,8 @@ pub struct App {
     pub should_quit: bool,
     pub env: Environment,
     pub render_mode: RenderMode,
+    /// Absoluter Index in `history` der aktuell markierten Zeile
+    pub selected: Option<usize>,
 }
 
 impl App {
@@ -25,7 +27,23 @@ impl App {
             should_quit: false,
             env: Environment::new(),
             render_mode: RenderMode::Symbolic,
+            selected: None,
         }
+    }
+}
+
+/// Zeilen, die ausgewählt werden dürfen (keine Leerzeilen, keine Mode-Meldungen)
+fn is_selectable(line: &str) -> bool {
+    !line.trim().is_empty() && !line.starts_with("-- Mode")
+}
+
+/// Text, der beim Auswählen in den Input eingefügt wird
+fn insertable(line: &str) -> String {
+    if let Some(cmd) = line.strip_prefix("> ") {
+        cmd.trim().to_string()
+    } else {
+        let t = line.trim();
+        t.strip_prefix('=').unwrap_or(t).trim().to_string()
     }
 }
 
@@ -46,7 +64,11 @@ pub fn run() -> io::Result<()> {
         {
             match key.code {
                 KeyCode::Esc => {
-                    app.should_quit = true;
+                    if app.selected.is_some() {
+                        app.selected = None;
+                    } else {
+                        app.should_quit = true;
+                    }
                 }
                 KeyCode::F(2) => {
                     app.render_mode = match app.render_mode {
@@ -55,21 +77,56 @@ pub fn run() -> io::Result<()> {
                     };
                     app.history
                         .push(format!("-- Mode: {:?} --", app.render_mode));
+                    app.selected = None;
                 }
                 KeyCode::Char(c) => {
+                    app.selected = None;
                     app.input.push(c);
                 }
                 KeyCode::Backspace => {
+                    app.selected = None;
                     app.input.pop();
                 }
+                KeyCode::Up => {
+                    app.selected = match app.selected {
+                        None => app.history.iter().rposition(|l| is_selectable(l)),
+                        Some(s) => (0..s)
+                            .rev()
+                            .find(|&i| is_selectable(&app.history[i]))
+                            .or(Some(s)),
+                    };
+                }
+                KeyCode::Down => {
+                    if let Some(s) = app.selected {
+                        // None, wenn keine weitere Zeile folgt -> zurück zum Input
+                        app.selected =
+                            (s + 1..app.history.len()).find(|&i| is_selectable(&app.history[i]));
+                    }
+                }
                 KeyCode::Enter => {
-                    let query = app.input.clone();
-                    app.history.push(format!("> {}", query));
+                    if let Some(s) = app.selected {
+                        // Nur einfügen, NICHT absenden
+                        let text = insertable(&app.history[s]);
+                        app.input.push_str(&text);
+                        app.selected = None;
+                    } else if app.input.is_empty() {
+                        if let Some(last_cmd) =
+                            app.history.iter().rev().find(|line| line.starts_with("> "))
+                        {
+                            let query = last_cmd.strip_prefix("> ").unwrap_or("").to_string();
+                            app.history.push(format!("> {}", query));
+                            let result = core::evaluate(&mut app.env, &query, app.render_mode);
+                            app.history.push(format!("  {}", result));
+                        }
+                    } else {
+                        let query = app.input.clone();
+                        app.history.push(format!("> {}", query));
 
-                    let result = core::evaluate(&mut app.env, &query, app.render_mode);
-                    app.history.push(format!("  {}", result));
+                        let result = core::evaluate(&mut app.env, &query, app.render_mode);
+                        app.history.push(format!("  {}", result));
 
-                    app.input.clear();
+                        app.input.clear();
+                    }
                 }
                 _ => {}
             }
