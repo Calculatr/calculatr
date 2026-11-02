@@ -13,16 +13,13 @@ pub fn highlight(input: &str, theme: &Theme) -> Vec<Span<'static>> {
         }
     };
 
-    // Einfacher Tokenizer für Mathe-Ausdrücke
     for c in input.chars() {
         if c.is_ascii_digit() || c == '.' {
-            flush_token(&mut current_token, &mut spans, theme.variable); // Falls vorher was anderes war
+            flush_token(&mut current_token, &mut spans, theme.variable);
             current_token.push(c);
         } else if c.is_alphabetic() {
-            // Buchstaben / Variablen / Funktionsnamen (z.B. sin, x)
             current_token.push(c);
         } else {
-            // Erstes Token wegschreiben falls vorhanden
             if !current_token.is_empty() {
                 let color = if current_token
                     .chars()

@@ -38,7 +38,6 @@ pub fn draw(f: &mut Frame, app: &App) {
 
     let num_lines = lines_to_render.len();
 
-    // History rendern mit unterschiedlichem Styling für Formeln vs. Ergebnisse
     let mut styled_lines = Vec::new();
     for (idx, line_str) in lines_to_render.iter().enumerate() {
         let dist_from_bottom = num_lines.saturating_sub(1 + idx);
@@ -48,7 +47,6 @@ pub fn draw(f: &mut Frame, app: &App) {
             continue;
         }
 
-        // Berechne Fade-Helligkeit für den Hintergrund
         let brightness_factor = if dist_from_bottom < (num_lines / 2) {
             1.0
         } else {
@@ -57,28 +55,21 @@ pub fn draw(f: &mut Frame, app: &App) {
             (1.0 - (current_dist / fade_span)).clamp(0.1, 1.0)
         };
 
-        // Unterscheiden zwischen Formel (startet mit ">") und Ergebnis
         let is_result = line_str.trim_start().starts_with('=');
 
         let spans = if is_result {
-            // ERGEBNIS: Hebt sich stark hervor (helle, kräftige Farbe)
             vec![Span::styled(
                 line_str.clone(),
-                Style::default().fg(theme.number), // Nutzt die kräftige Nummer-Farbe aus dem Theme
+                Style::default().fg(theme.number),
             )]
         } else {
-            // FORMEL: Etwas dezenter / gedimmter
             let raw_spans = highlight(line_str, &theme);
             raw_spans
                 .into_iter()
-                .map(|s| {
-                    // Etwas dunkler machen als das Ergebnis, damit es im Hintergrund steht
-                    Span::styled(s.content, Style::default().fg(Color::Rgb(140, 150, 170)))
-                })
+                .map(|s| Span::styled(s.content, Style::default().fg(Color::Rgb(140, 150, 170))))
                 .collect()
         };
 
-        // Fade-Effekt auf die Spans anwenden
         let faded_spans: Vec<Span> = spans
             .into_iter()
             .map(|span| {
@@ -104,7 +95,6 @@ pub fn draw(f: &mut Frame, app: &App) {
         styled_lines.push(Line::from(faded_spans));
     }
 
-    // History Box mit Theme-Farben
     let history_widget = Paragraph::new(styled_lines).block(
         Block::default()
             .borders(Borders::ALL)
@@ -116,7 +106,6 @@ pub fn draw(f: &mut Frame, app: &App) {
     );
     f.render_widget(history_widget, chunks[0]);
 
-    // Input Box mit Live-Highlighting
     let input_spans = highlight(&app.input, &theme);
     let input_widget = Paragraph::new(Line::from(input_spans)).block(
         Block::default()
