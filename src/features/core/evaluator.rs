@@ -1,10 +1,11 @@
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use super::ast::{Expr, MathConstant, Stmt};
 use super::functions;
 use super::parser::parse_stmt;
 
-#[derive(Default)]
+#[derive(Default, Clone, Serialize, Deserialize)]
 pub struct Environment {
     vars: HashMap<String, Expr>,
 }
@@ -12,6 +13,38 @@ pub struct Environment {
 impl Environment {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn get_vars(&self) -> &std::collections::HashMap<String, Expr> {
+        &self.vars
+    }
+
+    pub fn remove_var(&mut self, name: &str) -> bool {
+        // 1. Prüfen, ob die Variable überhaupt existiert
+        if !self.vars.contains_key(name) {
+            return false;
+        }
+
+        // 2. Zuerst alle abhängigen Variablen berechnen, solange 'name' noch existiert!
+        let mut updates = Vec::new();
+        for (var_name, expr) in &self.vars {
+            if var_name != name
+                && self.depends_on(expr, name, &mut HashSet::new())
+                && let Ok(val) = self.eval(expr)
+            {
+                updates.push((var_name.clone(), Expr::Number(val)));
+            }
+        }
+
+        // 3. Jetzt die Variable sicher entfernen
+        self.vars.remove(name);
+
+        // 4. Die abhängigen Variablen mit ihren neuen Festwerten aktualisieren
+        for (var_name, new_expr) in updates {
+            self.vars.insert(var_name, new_expr);
+        }
+
+        true
     }
 
     pub fn eval(&self, expr: &Expr) -> Result<f64, String> {
@@ -96,13 +129,12 @@ impl Environment {
         self.vars.get(name)
     }
 
-    /// Namen aller definierten Variablen (für die Autocompletion)
     pub fn var_names(&self) -> impl Iterator<Item = &String> {
         self.vars.keys()
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum RenderMode {
     Decimal,
     Symbolic,
@@ -113,6 +145,21 @@ pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> String 
 
     if cleaned.is_empty() {
         return "= 0".to_string();
+    }
+
+    if let Ok(Stmt::Expr(Expr::Call(name, args))) = parse_stmt(cleaned)
+        && name == "delvar"
+    {
+        return match args.first() {
+            Some(Expr::Variable(var_name)) => {
+                if env.remove_var(var_name) {
+                    format!("= Deleted variable '{}'", var_name)
+                } else {
+                    format!("= Error: Unknown variable '{}'", var_name)
+                }
+            }
+            _ => "= Error: delvar() expects a variable name".to_string(),
+        };
     }
 
     match parse_stmt(cleaned) {
