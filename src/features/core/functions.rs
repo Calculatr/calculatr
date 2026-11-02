@@ -1,16 +1,30 @@
-pub const NAMES: &[&str] = &["sin", "cos", "sqrt", "delvar"];
+pub const NAMES: &[&str] = &["sin", "cos", "sqrt", "frac", "delvar"];
 
 pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
-    let f: fn(f64) -> f64 = match name {
-        "sin" => f64::sin,
-        "cos" => f64::cos,
-        "sqrt" => f64::sqrt,
-        "delvar" => return Err("delvar expects a variable name string".to_string()),
-        _ => return Err(format!("Unknown function: {}", name)),
-    };
-
-    match args {
-        [x] => Ok(f(*x)),
-        _ => Err(format!("{}() expects exactly 1 argument", name)),
+    match name {
+        "sin" => match args {
+            [x] => Ok(f64::sin(*x)),
+            _ => Err("sin() expects exactly 1 argument".to_string()),
+        },
+        "cos" => match args {
+            [x] => Ok(f64::cos(*x)),
+            _ => Err("cos() expects exactly 1 argument".to_string()),
+        },
+        "sqrt" => match args {
+            [x] => Ok(f64::sqrt(*x)),
+            _ => Err("sqrt() expects exactly 1 argument".to_string()),
+        },
+        "frac" => match args {
+            [num, den] => {
+                if *den == 0.0 {
+                    Err("Division by zero".to_string())
+                } else {
+                    Ok(num / den)
+                }
+            }
+            _ => Err("frac() expects exactly 2 arguments".to_string()),
+        },
+        "delvar" => Err("delvar expects a variable name string".to_string()),
+        _ => Err(format!("Unknown function: {}", name)),
     }
 }

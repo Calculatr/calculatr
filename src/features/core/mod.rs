@@ -1,4 +1,4 @@
-mod ast;
+pub mod ast;
 pub mod evaluator;
 mod functions;
 pub mod parser;

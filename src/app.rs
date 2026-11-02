@@ -4,6 +4,8 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
+use ratatui_image::{picker::Picker, protocol::StatefulProtocol};
+use std::collections::HashMap;
 use std::io::{self, stdout};
 
 use crate::features::core::{self, Environment, RenderMode};
@@ -15,6 +17,12 @@ use crate::features::tui::completion::{self, CompState};
 pub enum ActivePane {
     HistoryInput,
     VariablesDrawer,
+}
+
+pub struct TypstImage {
+    pub proto: StatefulProtocol,
+    pub px_w: u32,
+    pub px_h: u32,
 }
 
 pub struct App {
@@ -30,10 +38,12 @@ pub struct App {
     pub var_filter: String,
     pub var_filter_active: bool,
     pub var_selected: Option<usize>,
+    pub picker: Picker,
+    pub images: HashMap<String, Option<TypstImage>>,
 }
 
 impl App {
-    pub fn new() -> Self {
+    pub fn new(picker: Picker) -> Self {
         if let Some(state) = persistence::load_state() {
             Self {
                 input: String::new(),
@@ -48,6 +58,8 @@ impl App {
                 var_filter: String::new(),
                 var_filter_active: false,
                 var_selected: None,
+                picker,
+                images: HashMap::new(),
             }
         } else {
             Self {
@@ -63,6 +75,8 @@ impl App {
                 var_filter: String::new(),
                 var_filter_active: false,
                 var_selected: None,
+                picker,
+                images: HashMap::new(),
             }
         }
     }
@@ -132,10 +146,11 @@ pub fn run() -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout());
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new();
+    let picker = Picker::from_query_stdio().unwrap_or_else(|_| Picker::halfblocks());
+    let mut app = App::new(picker);
 
     while !app.should_quit {
-        terminal.draw(|f| tui::draw(f, &app))?;
+        terminal.draw(|f| tui::draw(f, &mut app))?;
 
         if event::poll(std::time::Duration::from_millis(100))?
             && let Event::Key(key) = event::read()?
@@ -281,8 +296,8 @@ pub fn run() -> io::Result<()> {
                                     RenderMode::Symbolic => RenderMode::Decimal,
                                     RenderMode::Decimal => RenderMode::Symbolic,
                                 };
-                                app.history
-                                    .push(format!("-- Mode: {:?} --", app.render_mode));
+                                // app.history
+                                //     .push(format!("-- Mode: {:?} --", app.render_mode));
                                 app.selected = None;
                             }
                             KeyCode::Char(c) => {

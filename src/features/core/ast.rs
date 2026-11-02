@@ -66,4 +66,37 @@ impl Expr {
             }
         }
     }
+
+    pub fn to_typst(&self) -> String {
+        match self {
+            Expr::Number(n) => n.to_string(),
+            Expr::Constant(MathConstant::PI) => "pi".to_string(),
+            Expr::Constant(MathConstant::E) => "e".to_string(),
+            Expr::Variable(name) => name.clone(),
+            Expr::Neg(inner) => format!("-({})", inner.to_typst()),
+            Expr::Add(l, r) => format!("{} + {}", l.to_typst(), r.to_typst()),
+            Expr::Sub(l, r) => format!("{} - {}", l.to_typst(), r.to_typst()),
+            Expr::Mul(l, r) => format!("{} times {}", l.to_typst(), r.to_typst()),
+
+            // Sowohl echtes Division-Zeichen (/) als auch explizites frac(a, b) werden zu Typst frac(...)!
+            Expr::Div(l, r) => format!("frac({}, {})", l.to_typst(), r.to_typst()),
+
+            Expr::Call(name, args) => {
+                let args_str = args
+                    .iter()
+                    .map(|a| a.to_typst())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+
+                // Falls jemand manuell frac(a, b) eingibt, mappen wir das ebenfalls direkt
+                if name == "frac" && args.len() == 2 {
+                    format!("frac({}, {})", args[0].to_typst(), args[1].to_typst())
+                } else if name == "sqrt" {
+                    format!("sqrt({})", args_str)
+                } else {
+                    format!("{}({})", name, args_str)
+                }
+            }
+        }
+    }
 }
