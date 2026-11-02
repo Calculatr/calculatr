@@ -20,12 +20,10 @@ impl Environment {
     }
 
     pub fn remove_var(&mut self, name: &str) -> bool {
-        // 1. Prüfen, ob die Variable überhaupt existiert
         if !self.vars.contains_key(name) {
             return false;
         }
 
-        // 2. Zuerst alle abhängigen Variablen berechnen, solange 'name' noch existiert!
         let mut updates = Vec::new();
         for (var_name, expr) in &self.vars {
             if var_name != name
@@ -36,10 +34,8 @@ impl Environment {
             }
         }
 
-        // 3. Jetzt die Variable sicher entfernen
         self.vars.remove(name);
 
-        // 4. Die abhängigen Variablen mit ihren neuen Festwerten aktualisieren
         for (var_name, new_expr) in updates {
             self.vars.insert(var_name, new_expr);
         }
