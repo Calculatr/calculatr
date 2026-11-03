@@ -16,3 +16,6 @@ typst-layout = "0.15.1"
 typst-kit = "0.15.1"
 image = { version = "0.25", default-features = false, features = ["png"] }
 typst-assets = { version = "0.15", features = ["fonts"] }
+num-bigint = { version = "0.4", features = ["serde"] }
+num-rational = { version = "0.4", features = ["serde", "num-bigint"] }
+num-traits = "0.2"

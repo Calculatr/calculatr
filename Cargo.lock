@@ -335,6 +335,9 @@ dependencies = [
  "crossterm",
  "directories",
  "image",
+ "num-bigint",
+ "num-rational",
+ "num-traits",
  "ratatui",
  "ratatui-image",
  "serde",
@@ -2001,6 +2004,7 @@ checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
 dependencies = [
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]
@@ -2048,6 +2052,7 @@ dependencies = [
  "num-bigint",
  "num-integer",
  "num-traits",
+ "serde",
 ]
 
 [[package]]

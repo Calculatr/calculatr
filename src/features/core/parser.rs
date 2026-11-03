@@ -1,4 +1,5 @@
 use super::ast::{Expr, MathConstant, Stmt};
+use super::number::parse_decimal;
 
 pub struct Parser<'a> {
     chars: &'a [u8],
@@ -16,132 +17,124 @@ impl<'a> Parser<'a> {
     pub fn parse(&mut self) -> Result<Stmt, String> {
         let stmt = self.parse_statement()?;
         self.skip_whitespace();
-        if self.pos < self.chars.len() {
-            return Err("Unexpected characters at the end of the expression".to_string());
+        match self.peek() {
+            None => Ok(stmt),
+            Some(b'=') => Err("Only one '=' is allowed in an equation".to_string()),
+            Some(b':') => Err("Unexpected ':' (assignments use ':=')".to_string()),
+            Some(_) => Err("Unexpected characters at the end of the expression".to_string()),
         }
-        Ok(stmt)
     }
 
-    // 0. Layer: Assignment `name = expression` or normal expression
+    // --- statements ---------------------------------------------------------
+
     fn parse_statement(&mut self) -> Result<Stmt, String> {
         self.skip_whitespace();
         let start = self.pos;
 
         if let Some(name) = self.parse_identifier() {
             self.skip_whitespace();
-            if self.match_char(b'=') {
-                let expr = self.parse_expression()?;
-                return Ok(Stmt::Assign(name, expr));
+            if self.match_str(":=") {
+                if MathConstant::from_name(&name).is_some() {
+                    return Err(format!("'{name}' is a constant and read-only"));
+                }
+                let value = self.parse_equation()?;
+                return Ok(Stmt::Assign(name, value));
             }
         }
 
-        // No assignment -> reset and parse as expression
         self.pos = start;
-        Ok(Stmt::Expr(self.parse_expression()?))
+        Ok(Stmt::Expr(self.parse_equation()?))
     }
 
-    // 1. Layer: Add and Sub (lowest precedence)
+    fn parse_equation(&mut self) -> Result<Expr, String> {
+        let lhs = self.parse_expression()?;
+        self.skip_whitespace();
+        if self.match_char(b'=') {
+            let rhs = self.parse_expression()?;
+            return Ok(Expr::Eq(Box::new(lhs), Box::new(rhs)));
+        }
+        Ok(lhs)
+    }
+
+    // --- expressions --------------------------------------------------------
+
     fn parse_expression(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_term()?;
-
         loop {
             self.skip_whitespace();
             if self.match_char(b'+') {
                 let right = self.parse_term()?;
-                left = Expr::Add(Box::new(left), Box::new(right));
+                left = left.bin(Expr::Add, right);
             } else if self.match_char(b'-') {
                 let right = self.parse_term()?;
-                left = Expr::Sub(Box::new(left), Box::new(right));
+                left = left.bin(Expr::Sub, right);
             } else {
-                break;
+                return Ok(left);
             }
         }
-
-        Ok(left)
     }
 
-    // 2. Layer: Mul and Div (higher precedence), incl. implicit multiplication (3b, 2(x+1))
+    /// Multiplication, division and implicit multiplication (`3b`, `2(x+1)`).
     fn parse_term(&mut self) -> Result<Expr, String> {
-        let mut left = self.parse_factor()?;
-
+        let mut left = self.parse_unary()?;
         loop {
             self.skip_whitespace();
             if self.match_char(b'*') {
-                let right = self.parse_factor()?;
-                left = Expr::Mul(Box::new(left), Box::new(right));
+                let right = self.parse_unary()?;
+                left = left.bin(Expr::Mul, right);
             } else if self.match_char(b'/') {
-                let right = self.parse_factor()?;
-                left = Expr::Div(Box::new(left), Box::new(right));
+                let right = self.parse_unary()?;
+                left = left.bin(Expr::Div, right);
             } else if self.starts_implicit_factor() {
-                let right = self.parse_factor()?;
-                left = Expr::Mul(Box::new(left), Box::new(right));
+                let right = self.parse_unary()?;
+                left = left.bin(Expr::Mul, right);
             } else {
-                break;
+                return Ok(left);
             }
         }
-
-        Ok(left)
     }
 
-    // 3. Layer: Unary minus, numbers, constants, variables, functions, brackets
-    fn parse_factor(&mut self) -> Result<Expr, String> {
+    fn parse_unary(&mut self) -> Result<Expr, String> {
         self.skip_whitespace();
+        if self.match_char(b'-') {
+            return Ok(Expr::Neg(Box::new(self.parse_unary()?)));
+        }
+        if self.match_char(b'+') {
+            return self.parse_unary();
+        }
+        self.parse_power()
+    }
 
-        if self.pos >= self.chars.len() {
+    fn parse_power(&mut self) -> Result<Expr, String> {
+        let base = self.parse_primary()?;
+        self.skip_whitespace();
+        if self.match_char(b'^') {
+            let exp = self.parse_unary()?;
+            return Ok(base.bin(Expr::Pow, exp));
+        }
+        Ok(base)
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, String> {
+        self.skip_whitespace();
+        let Some(c) = self.peek() else {
             return Err("Unexpected end of expression".to_string());
-        }
-
-        let c = self.chars[self.pos];
-
-        if c == b'-' {
-            self.pos += 1;
-            let inner = self.parse_factor()?;
-            return Ok(Expr::Neg(Box::new(inner)));
-        }
+        };
 
         if c.is_ascii_digit() || c == b'.' {
-            let start = self.pos;
-            while self.pos < self.chars.len()
-                && (self.chars[self.pos].is_ascii_digit() || self.chars[self.pos] == b'.')
-            {
-                self.pos += 1;
-            }
-            let num_str = std::str::from_utf8(&self.chars[start..self.pos])
-                .map_err(|_| "Invalid UTF-8 sequence in number")?;
-            let num = num_str
-                .parse::<f64>()
-                .map_err(|_| format!("Could not parse number: {}", num_str))?;
-            return Ok(Expr::Number(num));
+            return self.parse_number();
         }
 
         if let Some(ident) = self.parse_identifier() {
             self.skip_whitespace();
-            if self.pos < self.chars.len() && self.chars[self.pos] == b'(' {
+            if self.peek() == Some(b'(') {
                 self.pos += 1;
-                let mut args = Vec::new();
-
-                self.skip_whitespace();
-                if !self.match_char(b')') {
-                    loop {
-                        args.push(self.parse_expression()?);
-                        self.skip_whitespace();
-                        if self.match_char(b',') {
-                            self.skip_whitespace();
-                        } else {
-                            break;
-                        }
-                    }
-                    if !self.match_char(b')') {
-                        return Err("Expected closing parenthesis ')'".to_string());
-                    }
-                }
-                return Ok(Expr::Call(ident, args));
+                return self.parse_call(ident);
             }
-
-            if let Some(constant) = MathConstant::from_name(&ident) {
-                return Ok(Expr::Constant(constant));
-            }
-            return Ok(Expr::Variable(ident));
+            return Ok(match MathConstant::from_name(&ident) {
+                Some(constant) => Expr::Constant(constant),
+                None => Expr::Variable(ident),
+            });
         }
 
         if c == b'(' {
@@ -154,17 +147,52 @@ impl<'a> Parser<'a> {
             return Ok(expr);
         }
 
+        if c == b'<' && self.chars.get(self.pos + 1) == Some(&b'>') {
+            return Err("Unfilled placeholder '<>'".to_string());
+        }
+
         Err(format!("Unexpected character: {}", c as char))
     }
 
-    /// Identifier: letter, followed by letters/digits/underscore.
+    fn parse_number(&mut self) -> Result<Expr, String> {
+        let start = self.pos;
+        while self.peek().is_some_and(|b| b.is_ascii_digit() || b == b'.') {
+            self.pos += 1;
+        }
+        let text = std::str::from_utf8(&self.chars[start..self.pos]).unwrap_or_default();
+        parse_decimal(text)
+            .map(Expr::Num)
+            .ok_or_else(|| format!("Could not parse number: {text}"))
+    }
+
+    fn parse_call(&mut self, name: String) -> Result<Expr, String> {
+        let mut args = Vec::new();
+        self.skip_whitespace();
+        if !self.match_char(b')') {
+            loop {
+                args.push(self.parse_expression()?);
+                self.skip_whitespace();
+                if !self.match_char(b',') {
+                    break;
+                }
+            }
+            if !self.match_char(b')') {
+                return Err("Expected closing parenthesis ')'".to_string());
+            }
+        }
+        Ok(Expr::Call(name, args))
+    }
+
+    // --- lexical helpers ----------------------------------------------------
+
     fn parse_identifier(&mut self) -> Option<String> {
-        if self.pos >= self.chars.len() || !self.chars[self.pos].is_ascii_alphabetic() {
+        if !self.peek().is_some_and(|b| b.is_ascii_alphabetic()) {
             return None;
         }
         let start = self.pos;
-        while self.pos < self.chars.len()
-            && (self.chars[self.pos].is_ascii_alphanumeric() || self.chars[self.pos] == b'_')
+        while self
+            .peek()
+            .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
         {
             self.pos += 1;
         }
@@ -172,19 +200,32 @@ impl<'a> Parser<'a> {
     }
 
     fn starts_implicit_factor(&self) -> bool {
-        self.pos < self.chars.len()
-            && (self.chars[self.pos].is_ascii_alphabetic() || self.chars[self.pos] == b'(')
+        self.peek()
+            .is_some_and(|b| b.is_ascii_alphabetic() || b == b'(')
+    }
+
+    fn peek(&self) -> Option<u8> {
+        self.chars.get(self.pos).copied()
     }
 
     fn skip_whitespace(&mut self) {
-        while self.pos < self.chars.len() && self.chars[self.pos].is_ascii_whitespace() {
+        while self.peek().is_some_and(|b| b.is_ascii_whitespace()) {
             self.pos += 1;
         }
     }
 
     fn match_char(&mut self, expected: u8) -> bool {
-        if self.pos < self.chars.len() && self.chars[self.pos] == expected {
+        if self.peek() == Some(expected) {
             self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn match_str(&mut self, expected: &str) -> bool {
+        if self.chars[self.pos..].starts_with(expected.as_bytes()) {
+            self.pos += expected.len();
             true
         } else {
             false
@@ -193,6 +234,98 @@ impl<'a> Parser<'a> {
 }
 
 pub fn parse_stmt(input: &str) -> Result<Stmt, String> {
-    let mut parser = Parser::new(input);
-    parser.parse()
+    Parser::new(input).parse()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::features::core::number::{int, parse_decimal};
+
+    fn expr(s: &str) -> Expr {
+        match parse_stmt(s).unwrap() {
+            Stmt::Expr(e) => e,
+            other => panic!("expected expression, got {other:?}"),
+        }
+    }
+
+    fn var(s: &str) -> Expr {
+        Expr::Variable(s.into())
+    }
+
+    #[test]
+    fn precedence_and_implicit_mul() {
+        assert_eq!(
+            expr("1+2*3"),
+            Expr::num(1).bin(Expr::Add, Expr::num(2).bin(Expr::Mul, Expr::num(3)))
+        );
+        assert_eq!(expr("3y"), Expr::num(3).bin(Expr::Mul, var("y")));
+        assert_eq!(
+            expr("2(x+1)"),
+            Expr::num(2).bin(Expr::Mul, var("x").bin(Expr::Add, Expr::num(1)))
+        );
+    }
+
+    #[test]
+    fn power_is_right_associative_and_binds_tighter_than_neg() {
+        assert_eq!(
+            expr("2^3^2"),
+            Expr::num(2).bin(Expr::Pow, Expr::num(3).bin(Expr::Pow, Expr::num(2)))
+        );
+        assert_eq!(
+            expr("-2^2"),
+            Expr::Neg(Box::new(Expr::num(2).bin(Expr::Pow, Expr::num(2))))
+        );
+        assert_eq!(
+            expr("2^-1"),
+            Expr::num(2).bin(Expr::Pow, Expr::Neg(Box::new(Expr::num(1))))
+        );
+    }
+
+    #[test]
+    fn decimal_literal_is_exact() {
+        assert_eq!(expr("0.25"), Expr::Num(parse_decimal("0.25").unwrap()));
+        assert_eq!(expr("1/4").children().len(), 2);
+    }
+
+    #[test]
+    fn assignment_uses_colon_equals() {
+        assert_eq!(
+            parse_stmt("x := 3").unwrap(),
+            Stmt::Assign("x".into(), Expr::num(3))
+        );
+        assert!(matches!(
+            parse_stmt("x = 3").unwrap(),
+            Stmt::Expr(Expr::Eq(..))
+        ));
+    }
+
+    #[test]
+    fn variables_can_hold_equations() {
+        let Stmt::Assign(name, Expr::Eq(l, r)) = parse_stmt("x := 3y=2").unwrap() else {
+            panic!("expected equation assignment");
+        };
+        assert_eq!(name, "x");
+        assert_eq!(*l, Expr::num(3).bin(Expr::Mul, var("y")));
+        assert_eq!(*r, Expr::Num(int(2)));
+    }
+
+    #[test]
+    fn rejects_bad_input() {
+        assert!(parse_stmt("1 +").is_err());
+        assert!(parse_stmt("(1+2").is_err());
+        assert!(parse_stmt("a = b = c").is_err());
+        assert!(parse_stmt("pi := 3").is_err());
+        assert!(parse_stmt("sin(<>)").unwrap_err().contains("placeholder"));
+        assert!(parse_stmt("1.2.3").is_err());
+    }
+
+    #[test]
+    fn function_calls() {
+        assert_eq!(
+            expr("frac(1, 2)"),
+            Expr::Call("frac".into(), vec![Expr::num(1), Expr::num(2)])
+        );
+        assert_eq!(expr("clear()"), Expr::Call("clear".into(), vec![]));
+    }
 }

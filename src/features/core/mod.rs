@@ -1,35 +1,68 @@
+pub mod algebra;
+pub mod answer;
 pub mod ast;
 pub mod evaluator;
-mod functions;
+pub mod format;
+pub mod functions;
+pub mod number;
 pub mod parser;
 
-use ast::MathConstant;
+pub use answer::{Answer, Evaluation};
 pub use evaluator::{Environment, RenderMode};
 
-pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> String {
+pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluation {
     evaluator::evaluate(env, input, mode)
 }
 
+#[derive(Debug, Clone)]
 pub struct Candidate {
     pub name: String,
-    pub is_function: bool,
+    pub kind: CandidateKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CandidateKind {
+    Function {
+        params: Vec<String>,
+        doc: &'static str,
+    },
+    Constant,
+    Variable,
+}
+
+impl Candidate {
+    pub fn is_function(&self) -> bool {
+        matches!(self.kind, CandidateKind::Function { .. })
+    }
+
+    pub fn signature(&self) -> String {
+        match &self.kind {
+            CandidateKind::Function { params, .. } => {
+                format!("{}({})", self.name, params.join(", "))
+            }
+            _ => self.name.clone(),
+        }
+    }
 }
 
 pub fn completions(env: &Environment) -> Vec<Candidate> {
-    let mut out: Vec<Candidate> = functions::NAMES
+    let mut out: Vec<Candidate> = functions::FUNCTIONS
         .iter()
-        .map(|n| Candidate {
-            name: n.to_string(),
-            is_function: true,
+        .map(|f| Candidate {
+            name: f.name.to_string(),
+            kind: CandidateKind::Function {
+                params: f.params.iter().map(|p| p.to_string()).collect(),
+                doc: f.doc,
+            },
         })
         .collect();
-    out.extend(MathConstant::NAMES.iter().map(|n| Candidate {
-        name: n.to_string(),
-        is_function: false,
+    out.extend(ast::MathConstant::ALL.iter().map(|c| Candidate {
+        name: c.name().to_string(),
+        kind: CandidateKind::Constant,
     }));
     out.extend(env.var_names().map(|n| Candidate {
         name: n.clone(),
-        is_function: false,
+        kind: CandidateKind::Variable,
     }));
     out.sort_by(|a, b| a.name.cmp(&b.name));
     out.dedup_by(|a, b| a.name == b.name);

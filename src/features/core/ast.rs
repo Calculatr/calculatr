@@ -1,25 +1,30 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+use super::number::Rational;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MathConstant {
-    PI,
+    Pi,
     E,
 }
 
 impl MathConstant {
-    pub const NAMES: &[&str] = &["pi", "e"];
+    pub const ALL: &[MathConstant] = &[Self::Pi, Self::E];
 
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "pi" => Some(Self::PI),
-            "e" => Some(Self::E),
-            _ => None,
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Pi => "pi",
+            Self::E => "e",
         }
     }
 
-    pub fn value(&self) -> f64 {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|c| c.name() == name)
+    }
+
+    pub fn value(self) -> f64 {
         match self {
-            Self::PI => std::f64::consts::PI,
+            Self::Pi => std::f64::consts::PI,
             Self::E => std::f64::consts::E,
         }
     }
@@ -27,7 +32,7 @@ impl MathConstant {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Expr {
-    Number(f64),
+    Num(Rational),
     Constant(MathConstant),
     Variable(String),
     Neg(Box<Expr>),
@@ -35,7 +40,9 @@ pub enum Expr {
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
     Div(Box<Expr>, Box<Expr>),
+    Pow(Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
+    Eq(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -45,56 +52,66 @@ pub enum Stmt {
 }
 
 impl Expr {
-    pub fn to_string_pretty(&self) -> String {
+    pub fn num(n: i64) -> Expr {
+        Expr::Num(super::number::int(n))
+    }
+
+    pub fn bin(self, op: fn(Box<Expr>, Box<Expr>) -> Expr, rhs: Expr) -> Expr {
+        op(Box::new(self), Box::new(rhs))
+    }
+
+    pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Number(n) => n.to_string(),
-            Expr::Constant(MathConstant::PI) => "pi".to_string(),
-            Expr::Constant(MathConstant::E) => "e".to_string(),
-            Expr::Variable(name) => name.clone(),
-            Expr::Neg(inner) => format!("-({})", inner.to_string_pretty()),
-            Expr::Add(l, r) => format!("({} + {})", l.to_string_pretty(), r.to_string_pretty()),
-            Expr::Sub(l, r) => format!("({} - {})", l.to_string_pretty(), r.to_string_pretty()),
-            Expr::Mul(l, r) => format!("{} * {}", l.to_string_pretty(), r.to_string_pretty()),
-            Expr::Div(l, r) => format!("({} / {})", l.to_string_pretty(), r.to_string_pretty()),
-            Expr::Call(name, args) => {
-                let args_str = args
-                    .iter()
-                    .map(|a| a.to_string_pretty())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{}({})", name, args_str)
-            }
+            Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) => vec![],
+            Expr::Neg(a) => vec![a],
+            Expr::Add(a, b)
+            | Expr::Sub(a, b)
+            | Expr::Mul(a, b)
+            | Expr::Div(a, b)
+            | Expr::Pow(a, b)
+            | Expr::Eq(a, b) => vec![a, b],
+            Expr::Call(_, args) => args.iter().collect(),
         }
     }
 
-    pub fn to_typst(&self) -> String {
+    pub fn try_map<E>(&self, f: &mut impl FnMut(&Expr) -> Result<Expr, E>) -> Result<Expr, E> {
+        let bx = |e: Expr| Box::new(e);
+        Ok(match self {
+            Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) => self.clone(),
+            Expr::Neg(a) => Expr::Neg(bx(f(a)?)),
+            Expr::Add(a, b) => Expr::Add(bx(f(a)?), bx(f(b)?)),
+            Expr::Sub(a, b) => Expr::Sub(bx(f(a)?), bx(f(b)?)),
+            Expr::Mul(a, b) => Expr::Mul(bx(f(a)?), bx(f(b)?)),
+            Expr::Div(a, b) => Expr::Div(bx(f(a)?), bx(f(b)?)),
+            Expr::Pow(a, b) => Expr::Pow(bx(f(a)?), bx(f(b)?)),
+            Expr::Eq(a, b) => Expr::Eq(bx(f(a)?), bx(f(b)?)),
+            Expr::Call(n, args) => Expr::Call(
+                n.clone(),
+                args.iter().map(&mut *f).collect::<Result<Vec<_>, E>>()?,
+            ),
+        })
+    }
+
+    pub fn is_closed(&self) -> bool {
         match self {
-            Expr::Number(n) => n.to_string(),
-            Expr::Constant(MathConstant::PI) => "pi".to_string(),
-            Expr::Constant(MathConstant::E) => "e".to_string(),
-            Expr::Variable(name) => name.clone(),
-            Expr::Neg(inner) => format!("-({})", inner.to_typst()),
-            Expr::Add(l, r) => format!("{} + {}", l.to_typst(), r.to_typst()),
-            Expr::Sub(l, r) => format!("{} - {}", l.to_typst(), r.to_typst()),
-            Expr::Mul(l, r) => format!("{} times {}", l.to_typst(), r.to_typst()),
+            Expr::Variable(_) => false,
+            _ => self.children().into_iter().all(Expr::is_closed),
+        }
+    }
 
-            Expr::Div(l, r) => format!("frac({}, {})", l.to_typst(), r.to_typst()),
+    pub fn mentions(&self, name: &str) -> bool {
+        match self {
+            Expr::Variable(n) => n == name,
+            _ => self.children().into_iter().any(|c| c.mentions(name)),
+        }
+    }
 
-            Expr::Call(name, args) => {
-                let args_str = args
-                    .iter()
-                    .map(|a| a.to_typst())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-
-                if name == "frac" && args.len() == 2 {
-                    format!("frac({}, {})", args[0].to_typst(), args[1].to_typst())
-                } else if name == "sqrt" {
-                    format!("sqrt({})", args_str)
-                } else {
-                    format!("{}({})", name, args_str)
-                }
-            }
+    pub fn replace_var(&self, name: &str, with: &Expr) -> Expr {
+        match self {
+            Expr::Variable(n) if n == name => with.clone(),
+            _ => self
+                .try_map::<()>(&mut |c| Ok(c.replace_var(name, with)))
+                .expect("infallible"),
         }
     }
 }
