@@ -195,7 +195,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [x] `clear`
 - [x] `delvar`
 
-### Missing (suggestions)
+### Missing
 
 **Constants**
 - [ ] `tau`
