@@ -11,7 +11,6 @@ use typst_layout::PagedDocument;
 
 use crate::features::tui::theme::Theme;
 
-/// Eingebettete Typst-Fonts (inkl. New Computer Modern Math), einmal pro Prozess geladen.
 static FONTS: OnceLock<(FontBook, Vec<Font>)> = OnceLock::new();
 
 fn embedded_fonts() -> &'static (FontBook, Vec<Font>) {
@@ -53,7 +52,6 @@ impl TypstRenderer {
         let library = LazyHash::new(Library::builder().build());
         let (book, fonts) = embedded_fonts();
 
-        // Typst 0.15: FileId ist ein interned RootedPath (Root + VirtualPath)
         let vpath = VirtualPath::new("main.typ").expect("static path is valid");
         let file_id = FileId::new(RootedPath::new(VirtualRoot::Project, vpath));
         let source = Source::new(file_id, content);
@@ -78,7 +76,7 @@ impl TypstRenderer {
             .ok_or_else(|| "Typst generated zero pages".to_string())?;
 
         let options = typst_render::RenderOptions {
-            pixel_per_pt: 2.0.into(), // 2x für HiDPI
+            pixel_per_pt: 2.0.into(),
             ..Default::default()
         };
 

@@ -15,17 +15,14 @@ use ratatui::{
 use ratatui_image::{StatefulImage, picker::Picker};
 use std::collections::HashMap;
 
-/// Maximale Höhe (in Terminalzeilen) eines gerenderten Typst-Eintrags.
 const MAX_IMG_ROWS: u16 = 8;
 
 struct Entry {
     idx: usize,
     height: u16,
-    /// (Typst-Code, Breite in Zellen), falls als Bild gerendert wird.
     typst: Option<(String, u16)>,
 }
 
-/// Typst-Code für eine History-Zeile (nur Eingabezeilen "> ..." im Symbolic-Modus).
 fn typst_code_for(line: &str, mode: RenderMode) -> Option<String> {
     if mode != RenderMode::Symbolic {
         return None;
@@ -41,7 +38,6 @@ fn typst_code_for(line: &str, mode: RenderMode) -> Option<String> {
     Some(expr.to_typst())
 }
 
-/// Rendert den Code einmalig und legt das Ergebnis im Cache ab.
 fn ensure_image(
     images: &mut HashMap<String, Option<TypstImage>>,
     picker: &mut Picker,
@@ -69,7 +65,6 @@ fn ensure_image(
     images.insert(code.to_string(), img);
 }
 
-/// Bestimmt, wie viele Zeilen ein History-Eintrag belegt.
 fn measure(app: &mut App, theme: &Theme, idx: usize, max_w: u16) -> Entry {
     if let Some(code) = typst_code_for(&app.history[idx], app.render_mode) {
         ensure_image(&mut app.images, &mut app.picker, theme, &code);
@@ -99,7 +94,6 @@ fn measure(app: &mut App, theme: &Theme, idx: usize, max_w: u16) -> Entry {
     }
 }
 
-/// Textdarstellung einer History-Zeile (Fallback, Ergebnisse, Mode-Zeilen).
 fn text_line(line_str: &str, highlighted: bool, brightness: f32, theme: &Theme) -> Line<'static> {
     let is_result = line_str.trim_start().starts_with('=');
 
@@ -211,7 +205,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     let inner = history_block.inner(left_chunk);
     f.render_widget(history_block, left_chunk);
 
-    // --- Sichtbares Fenster bestimmen (Einträge haben variable Höhe) ---
     let total = app.history.len();
     let mut entries: Vec<Entry> = Vec::new();
     let mut used: u16 = 0;
@@ -246,7 +239,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         top_anchored = true;
     }
 
-    // --- Zeichnen ---
     let num_lines = inner.height as usize;
     let mut y = inner.y
         + if top_anchored {
