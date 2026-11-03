@@ -1,8 +1,9 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
+use super::clipboard::CopyTarget;
 use super::{App, Focus, Tab};
 use crate::features::core::{self, Evaluation};
-use crate::features::editor::{EditorConfig, EditorEvent, Leave, ListEvent, ListSpec};
+use crate::features::editor::{EditorConfig, EditorEvent, Leave, ListEvent, ListSpec, Mode};
 use crate::features::history::{self, HistoryEntry};
 use crate::features::settings::{Action, Toggle};
 
@@ -81,10 +82,64 @@ impl App {
             auto_close: self.settings.auto_close_brackets,
             candidates: &candidates,
         };
-        match self.editor.handle_key(key, &cfg) {
+        let is_paste_key = key.modifiers.is_empty() && matches!(key.code, KeyCode::Char('p' | 'P'));
+        if is_paste_key && self.editor.mode() != Mode::Insert {
+            self.pull_clipboard();
+        }
+        let event = self.editor.handle_key(key, &cfg);
+        self.push_register();
+        match event {
             EditorEvent::None => {}
             EditorEvent::Submit => self.submit(),
             EditorEvent::FocusHistory => self.focus_history(),
+        }
+    }
+    // --- clipboard ----------------------------------------------------------
+
+    fn pull_clipboard(&mut self) {
+        if !self.settings.system_clipboard {
+            return;
+        }
+        if let Some(text) = self.clipboard.get() {
+            let text = single_line(&text);
+            self.editor.load_register(text);
+        }
+    }
+
+    fn push_register(&mut self) {
+        if !self.editor.take_register_write() || !self.settings.system_clipboard {
+            return;
+        }
+        let text = self.editor.register().to_string();
+        if text.is_empty() {
+            return;
+        }
+        let target = self.clipboard.set(&text);
+        if target != CopyTarget::Nowhere {
+            self.set_status(format!("Copied to {}", target.label()));
+        }
+    }
+
+    fn yank(&mut self, text: String) {
+        self.editor.set_register(text);
+        self.push_register();
+    }
+
+    pub fn on_paste(&mut self, text: &str) {
+        let text = single_line(text);
+        if self.tab != Tab::Calculator {
+            return;
+        }
+        match self.focus {
+            Focus::Input => {
+                self.editor.paste_and_insert(&text);
+                self.status = None;
+            }
+            Focus::Variables if self.var_filter_active => {
+                self.var_filter.push_str(&text);
+                self.refresh_var_cursor();
+            }
+            _ => {}
         }
     }
 
@@ -178,7 +233,7 @@ impl App {
             }
             ListEvent::Yank(range) => {
                 let text = self.joined_history_text(range.clone());
-                self.editor.set_register(text);
+                self.yank(text);
                 self.set_status(format!("Yanked {} line(s)", range.count()));
             }
             ListEvent::Delete(range) => {
@@ -251,7 +306,7 @@ impl App {
                 self.focus_input();
             }
             ListEvent::Yank(range) => {
-                self.editor.set_register(names[range.clone()].join(", "));
+                self.yank(names[range.clone()].join(", "));
                 self.set_status(format!("Yanked {} variable(s)", range.count()));
             }
             ListEvent::Delete(range) => {
@@ -289,4 +344,12 @@ impl App {
         self.var_nav.clamp(&spec);
         self.var_nav.ensure_cursor(&spec, false);
     }
+}
+
+fn single_line(text: &str) -> String {
+    text.split(['\r', '\n'])
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ")
 }

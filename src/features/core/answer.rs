@@ -28,9 +28,9 @@ impl Answer {
                 label: None,
                 expr,
                 fmt,
-            } => format!("= {}", expr.to_text(*fmt)),
-            Answer::Message(m) => format!("= {m}"),
-            Answer::Error(e) => format!("= Error: {e}"),
+            } => expr.to_text(*fmt),
+            Answer::Message(m) => m.clone(),
+            Answer::Error(e) => format!("Error: {e}"),
         }
     }
 

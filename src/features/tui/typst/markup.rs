@@ -86,7 +86,7 @@ pub fn answer_source(answer: &Answer, theme: &Theme) -> Option<String> {
     };
     let head = match label {
         Some(name) => format!("{} crel(colon.eq)", variable(name)),
-        None => "crel(=)".to_string(),
+        None => String::new(),
     };
     let body = format!("{head} {}", expr_math(expr, *fmt));
     Some(document(&body, &Palette::new(theme, LineRole::Result)))

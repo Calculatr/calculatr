@@ -19,3 +19,5 @@ typst-assets = { version = "0.15", features = ["fonts"] }
 num-bigint = { version = "0.4", features = ["serde"] }
 num-rational = { version = "0.4", features = ["serde", "num-bigint"] }
 num-traits = "0.2"
+arboard = { version = "3", default-features = false, features = ["wayland-data-control"] }
+base64 = "0.22"

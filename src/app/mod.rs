@@ -1,11 +1,13 @@
+mod clipboard;
 mod input;
 mod settings_view;
 
 use std::io::{self, Stdout, stdout};
 use std::time::{Duration, Instant};
 
+use clipboard::Clipboard;
 use crossterm::cursor::SetCursorStyle;
-use crossterm::event::{self, Event, KeyEventKind};
+use crossterm::event::{self, DisableBracketedPaste, EnableBracketedPaste, Event, KeyEventKind};
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
@@ -62,6 +64,7 @@ pub struct App {
     pub picker: Picker,
     pub images: ImageCache,
     pub should_quit: bool,
+    pub(crate) clipboard: Clipboard,
     persist: bool,
     cursor_shape: Option<SetCursorStyle>,
 }
@@ -74,6 +77,7 @@ impl App {
             persistence::load_state(),
         );
         app.persist = true;
+        app.clipboard = Clipboard::system();
         app
     }
 
@@ -101,6 +105,7 @@ impl App {
             picker,
             images: ImageCache::new(),
             should_quit: false,
+            clipboard: Clipboard::disabled(),
             persist: false,
             cursor_shape: None,
         }
@@ -181,6 +186,7 @@ impl TerminalGuard {
         enable_raw_mode()?;
         let guard = Self;
         stdout().execute(EnterAlternateScreen)?;
+        stdout().execute(EnableBracketedPaste)?;
         Ok(guard)
     }
 }
@@ -189,6 +195,7 @@ impl Drop for TerminalGuard {
     fn drop(&mut self) {
         let _ = execute!(stdout(), SetCursorStyle::DefaultUserShape);
         let _ = stdout().execute(LeaveAlternateScreen);
+        let _ = stdout().execute(DisableBracketedPaste);
         let _ = disable_raw_mode();
     }
 }
@@ -212,6 +219,10 @@ pub fn run() -> io::Result<()> {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     app.on_key(key);
+                    dirty = true;
+                }
+                Event::Paste(text) => {
+                    app.on_paste(&text);
                     dirty = true;
                 }
                 Event::Resize(..) => dirty = true,

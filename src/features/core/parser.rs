@@ -74,7 +74,6 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Multiplication, division and implicit multiplication (`3b`, `2(x+1)`).
     fn parse_term(&mut self) -> Result<Expr, String> {
         let mut left = self.parse_unary()?;
         loop {

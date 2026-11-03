@@ -85,6 +85,7 @@ pub struct Editor {
     anchor: usize,
     pending: Pending,
     register: String,
+    register_written: bool,
     undo: Vec<(Vec<char>, usize)>,
     comp: Option<CompState>,
 }
@@ -103,6 +104,7 @@ impl Editor {
             anchor: 0,
             pending: Pending::default(),
             register: String::new(),
+            register_written: false,
             undo: Vec::new(),
             comp: None,
         }
@@ -114,13 +116,21 @@ impl Editor {
         self.mode
     }
 
-    #[cfg(test)]
     pub fn register(&self) -> &str {
         &self.register
     }
 
     pub fn set_register(&mut self, text: String) {
         self.register = text;
+        self.register_written = true;
+    }
+
+    pub fn load_register(&mut self, text: String) {
+        self.register = text;
+    }
+
+    pub fn take_register_write(&mut self) -> bool {
+        std::mem::take(&mut self.register_written)
     }
 
     pub fn visual_range(&self) -> Option<Range<usize>> {
@@ -456,6 +466,7 @@ impl Editor {
         }
         self.snapshot();
         self.register = self.buffer.delete_range(range);
+        self.register_written = true;
         if then_insert {
             self.mode = Mode::Insert;
         } else {
@@ -553,6 +564,7 @@ impl Editor {
         match op {
             Op::Yank => {
                 self.register = self.buffer.slice(range.clone());
+                self.register_written = true;
                 self.buffer.set_cursor(range.start);
                 self.clamp_normal();
             }
