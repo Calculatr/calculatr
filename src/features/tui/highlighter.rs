@@ -1,66 +1,123 @@
-use super::theme::Theme;
-use ratatui::style::{Color, Style};
-use ratatui::text::Span;
+use super::theme::TokenKind;
+use crate::features::core::ast::MathConstant;
+use crate::features::core::functions;
 
-pub fn highlight(input: &str, theme: &Theme) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
-    let mut current_token = String::new();
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Token {
+    pub text: String,
+    pub kind: TokenKind,
+}
 
-    let flush_token = |token: &mut String, spans: &mut Vec<Span<'static>>, color: Color| {
-        if !token.is_empty() {
-            spans.push(Span::styled(token.clone(), Style::default().fg(color)));
-            token.clear();
-        }
-    };
+fn token(text: impl Into<String>, kind: TokenKind) -> Token {
+    Token {
+        text: text.into(),
+        kind,
+    }
+}
 
-    for c in input.chars() {
+pub fn tokenize(input: &str) -> Vec<Token> {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = Vec::new();
+    let mut i = 0;
+
+    let next_non_space = |from: usize| chars[from..].iter().find(|c| !c.is_whitespace()).copied();
+
+    while i < chars.len() {
+        let c = chars[i];
         if c.is_ascii_digit() || c == '.' {
-            flush_token(&mut current_token, &mut spans, theme.variable);
-            current_token.push(c);
-        } else if c.is_alphabetic() {
-            current_token.push(c);
-        } else {
-            if !current_token.is_empty() {
-                let color = if current_token
-                    .chars()
-                    .all(|ch| ch.is_ascii_digit() || ch == '.')
-                {
-                    theme.number
-                } else {
-                    theme.variable
-                };
-                flush_token(&mut current_token, &mut spans, color);
+            let start = i;
+            while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+                i += 1;
             }
-
-            let color = match c {
-                '+' | '-' | '*' | '/' | '^' | '=' => theme.operator,
-                '(' | ')' | '{' | '}' | '[' | ']' => theme.bracket,
-                '>' => theme.prompt,
-                _ => Color::White,
+            out.push(token(
+                chars[start..i].iter().collect::<String>(),
+                TokenKind::Number,
+            ));
+        } else if c.is_alphabetic() || c == '_' {
+            let start = i;
+            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                i += 1;
+            }
+            let word: String = chars[start..i].iter().collect();
+            let kind = if MathConstant::from_name(&word).is_some() {
+                TokenKind::Constant
+            } else if functions::lookup(&word).is_some() || next_non_space(i) == Some('(') {
+                TokenKind::Function
+            } else {
+                TokenKind::Variable
             };
-
-            spans.push(Span::styled(c.to_string(), Style::default().fg(color)));
+            out.push(token(word, kind));
+        } else if c == ':' && chars.get(i + 1) == Some(&'=') {
+            out.push(token(":=", TokenKind::Operator));
+            i += 2;
+        } else if c == '<' && chars.get(i + 1) == Some(&'>') {
+            out.push(token("<>", TokenKind::Placeholder));
+            i += 2;
+        } else {
+            let kind = match c {
+                '+' | '-' | '*' | '/' | '^' | '=' => TokenKind::Operator,
+                '(' | ')' | '[' | ']' | '{' | '}' => TokenKind::Bracket,
+                ',' => TokenKind::Punct,
+                _ => TokenKind::Text,
+            };
+            out.push(token(c, kind));
+            i += 1;
         }
     }
+    out
+}
 
-    if !current_token.is_empty() {
-        let color = if current_token
-            .chars()
-            .all(|ch| ch.is_ascii_digit() || ch == '.')
-        {
-            theme.number
-        } else {
-            theme.variable
-        };
-        spans.push(Span::styled(current_token, Style::default().fg(color)));
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use TokenKind::*;
+
+    fn kinds(s: &str) -> Vec<(String, TokenKind)> {
+        tokenize(s).into_iter().map(|t| (t.text, t.kind)).collect()
     }
 
-    if spans.is_empty() && !input.is_empty() {
-        spans.push(Span::styled(
-            input.to_string(),
-            Style::default().fg(theme.input_text),
-        ));
+    #[test]
+    fn classifies_tokens() {
+        assert_eq!(
+            kinds("sin(x)+2*pi"),
+            vec![
+                ("sin".into(), Function),
+                ("(".into(), Bracket),
+                ("x".into(), Variable),
+                (")".into(), Bracket),
+                ("+".into(), Operator),
+                ("2".into(), Number),
+                ("*".into(), Operator),
+                ("pi".into(), Constant),
+            ]
+        );
     }
 
-    spans
+    #[test]
+    fn assignment_placeholders_and_unknown_calls() {
+        assert_eq!(
+            kinds("x := f(<>, 1.5)"),
+            vec![
+                ("x".into(), Variable),
+                (" ".into(), Text),
+                (":=".into(), Operator),
+                (" ".into(), Text),
+                ("f".into(), Function),
+                ("(".into(), Bracket),
+                ("<>".into(), Placeholder),
+                (",".into(), Punct),
+                (" ".into(), Text),
+                ("1.5".into(), Number),
+                (")".into(), Bracket),
+            ]
+        );
+    }
+
+    #[test]
+    fn tokens_reassemble_to_the_input() {
+        for s in ["", "3y = 2", "frac(1, 2) ^ -x", "αβ + 1"] {
+            let joined: String = tokenize(s).into_iter().map(|t| t.text).collect();
+            assert_eq!(joined, s);
+        }
+    }
 }

@@ -1,6 +1,6 @@
 use std::sync::OnceLock;
 
-use ratatui::style::Color;
+use image::RgbaImage;
 use typst::diag::{FileError, FileResult};
 use typst::foundations::{Bytes, Datetime, Duration};
 use typst::syntax::{FileId, RootedPath, Source, VirtualPath, VirtualRoot};
@@ -9,12 +9,15 @@ use typst::utils::LazyHash;
 use typst::{Library, LibraryExt, World};
 use typst_layout::PagedDocument;
 
-use crate::features::tui::theme::Theme;
+struct Shared {
+    library: LazyHash<Library>,
+    book: LazyHash<FontBook>,
+    fonts: Vec<Font>,
+}
 
-static FONTS: OnceLock<(FontBook, Vec<Font>)> = OnceLock::new();
-
-fn embedded_fonts() -> &'static (FontBook, Vec<Font>) {
-    FONTS.get_or_init(|| {
+fn shared() -> &'static Shared {
+    static SHARED: OnceLock<Shared> = OnceLock::new();
+    SHARED.get_or_init(|| {
         let fonts: Vec<Font> = typst_assets::fonts()
             .flat_map(|data| Font::iter(Bytes::new(data)))
             .collect();
@@ -22,53 +25,32 @@ fn embedded_fonts() -> &'static (FontBook, Vec<Font>) {
         for font in &fonts {
             book.push(font.info().clone());
         }
-        (book, fonts)
+        Shared {
+            library: LazyHash::new(Library::builder().build()),
+            book: LazyHash::new(book),
+            fonts,
+        }
     })
 }
 
 pub struct TypstRenderer {
-    library: LazyHash<Library>,
-    book: LazyHash<FontBook>,
-    fonts: Vec<Font>,
     source: Source,
 }
 
 impl TypstRenderer {
-    pub fn new(math_code: &str, theme: &Theme) -> Self {
-        let color_hex = match theme.input_text {
-            Color::Rgb(r, g, b) => format!("rgb(\"{:02x}{:02x}{:02x}\")", r, g, b),
-            Color::Cyan => "rgb(\"00ffff\")".to_string(),
-            Color::Magenta => "rgb(\"ff00ff\")".to_string(),
-            Color::Green => "rgb(\"00ff00\")".to_string(),
-            Color::Yellow => "rgb(\"ffff00\")".to_string(),
-            _ => "white".to_string(),
-        };
-
-        let content = format!(
-            "#set page(width: auto, height: auto, fill: none, margin: (x: 4pt, y: 4pt))\n#set text(fill: {})\n$ {} $",
-            color_hex, math_code
-        );
-
-        let library = LazyHash::new(Library::builder().build());
-        let (book, fonts) = embedded_fonts();
-
+    pub fn new(content: String) -> Self {
         let vpath = VirtualPath::new("main.typ").expect("static path is valid");
         let file_id = FileId::new(RootedPath::new(VirtualRoot::Project, vpath));
-        let source = Source::new(file_id, content);
-
         Self {
-            library,
-            book: LazyHash::new(book.clone()),
-            fonts: fonts.clone(),
-            source,
+            source: Source::new(file_id, content),
         }
     }
 
-    pub fn render_to_png(&self) -> Result<Vec<u8>, String> {
+    pub fn render(&self, pixel_per_pt: f32) -> Result<RgbaImage, String> {
         let warned = typst::compile::<PagedDocument>(self);
         let document = warned
             .output
-            .map_err(|e| format!("Typst compilation error: {:?}", e))?;
+            .map_err(|e| format!("Typst compilation error: {e:?}"))?;
 
         let page = document
             .pages()
@@ -76,24 +58,25 @@ impl TypstRenderer {
             .ok_or_else(|| "Typst generated zero pages".to_string())?;
 
         let options = typst_render::RenderOptions {
-            pixel_per_pt: 2.0.into(),
+            pixel_per_pt: f64::from(pixel_per_pt).into(),
             ..Default::default()
         };
-
-        let pixmap = typst_render::render(page, &options);
-        pixmap
+        let png = typst_render::render(page, &options)
             .encode_png()
-            .map_err(|e| format!("PNG encoding failed: {}", e))
+            .map_err(|e| format!("PNG encoding failed: {e}"))?;
+        image::load_from_memory(&png)
+            .map(|img| img.to_rgba8())
+            .map_err(|e| format!("PNG decoding failed: {e}"))
     }
 }
 
 impl World for TypstRenderer {
     fn library(&self) -> &LazyHash<Library> {
-        &self.library
+        &shared().library
     }
 
     fn book(&self) -> &LazyHash<FontBook> {
-        &self.book
+        &shared().book
     }
 
     fn main(&self) -> FileId {
@@ -113,7 +96,7 @@ impl World for TypstRenderer {
     }
 
     fn font(&self, index: usize) -> Option<Font> {
-        self.fonts.get(index).cloned()
+        shared().fonts.get(index).cloned()
     }
 
     fn today(&self, _offset: Option<Duration>) -> Option<Datetime> {
