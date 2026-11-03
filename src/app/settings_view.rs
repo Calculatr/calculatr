@@ -18,7 +18,6 @@ impl SettingsRow {
     }
 }
 
-/// All rows in display order.
 pub fn settings_rows() -> Vec<SettingsRow> {
     let mut rows = vec![SettingsRow::Header("General")];
     rows.extend(Toggle::ALL.iter().map(|&t| SettingsRow::Toggle(t)));
