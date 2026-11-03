@@ -341,11 +341,15 @@ pub fn run() -> io::Result<()> {
                                     }
                                 } else {
                                     let query = app.input.clone();
-                                    app.history.push(format!("> {}", query));
 
                                     let result =
                                         core::evaluate(&mut app.env, &query, app.render_mode);
-                                    app.history.push(format!("  {}", result));
+                                    if result == "= CLEAR_HISTORY" {
+                                        app.history.clear();
+                                    } else {
+                                        app.history.push(format!("> {}", query));
+                                        app.history.push(format!("  {}", result));
+                                    }
 
                                     app.input.clear();
                                 }

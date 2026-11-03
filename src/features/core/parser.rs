@@ -118,12 +118,24 @@ impl<'a> Parser<'a> {
             self.skip_whitespace();
             if self.pos < self.chars.len() && self.chars[self.pos] == b'(' {
                 self.pos += 1;
-                let arg = self.parse_expression()?;
+                let mut args = Vec::new();
+
                 self.skip_whitespace();
                 if !self.match_char(b')') {
-                    return Err("Expected closing parenthesis ')'".to_string());
+                    loop {
+                        args.push(self.parse_expression()?);
+                        self.skip_whitespace();
+                        if self.match_char(b',') {
+                            self.skip_whitespace();
+                        } else {
+                            break;
+                        }
+                    }
+                    if !self.match_char(b')') {
+                        return Err("Expected closing parenthesis ')'".to_string());
+                    }
                 }
-                return Ok(Expr::Call(ident, vec![arg]));
+                return Ok(Expr::Call(ident, args));
             }
 
             if let Some(constant) = MathConstant::from_name(&ident) {

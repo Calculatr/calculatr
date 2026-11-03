@@ -143,19 +143,21 @@ pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> String 
         return "= 0".to_string();
     }
 
-    if let Ok(Stmt::Expr(Expr::Call(name, args))) = parse_stmt(cleaned)
-        && name == "delvar"
-    {
-        return match args.first() {
-            Some(Expr::Variable(var_name)) => {
-                if env.remove_var(var_name) {
-                    format!("= Deleted variable '{}'", var_name)
-                } else {
-                    format!("= Error: Unknown variable '{}'", var_name)
+    if let Ok(Stmt::Expr(Expr::Call(name, args))) = parse_stmt(cleaned) {
+        if name == "delvar" {
+            return match args.first() {
+                Some(Expr::Variable(var_name)) => {
+                    if env.remove_var(var_name) {
+                        format!("= Deleted variable '{}'", var_name)
+                    } else {
+                        format!("= Error: Unknown variable '{}'", var_name)
+                    }
                 }
-            }
-            _ => "= Error: delvar() expects a variable name".to_string(),
-        };
+                _ => "= Error: delvar() expects a variable name".to_string(),
+            };
+        } else if name == "clear" {
+            return "= CLEAR_HISTORY".to_string();
+        }
     }
 
     match parse_stmt(cleaned) {

@@ -1,4 +1,4 @@
-pub const NAMES: &[&str] = &["sin", "cos", "sqrt", "frac", "delvar"];
+pub const NAMES: &[&str] = &["sin", "cos", "sqrt", "frac", "clear", "delvar"];
 
 pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
     match name {
@@ -23,6 +23,10 @@ pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
                 }
             }
             _ => Err("frac() expects exactly 2 arguments".to_string()),
+        },
+        "clear" => match args {
+            [] => Ok(0.0),
+            _ => Err("clear() expects no arguments".to_string()),
         },
         "delvar" => Err("delvar expects a variable name string".to_string()),
         _ => Err(format!("Unknown function: {}", name)),
