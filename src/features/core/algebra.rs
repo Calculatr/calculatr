@@ -1,6 +1,7 @@
-use num_traits::{One, Signed, Zero};
+use num_complex::Complex64;
+use num_traits::{One, Signed, ToPrimitive, Zero};
 
-use super::ast::Expr;
+use super::ast::{Expr, MathConstant};
 use super::functions;
 use super::number::{self, Rational, from_f64, pow_int, sqrt_exact};
 
@@ -234,32 +235,51 @@ fn power(base: Expr, exp: Expr) -> Result<Expr, String> {
 // ---------------------------------------------------------------------------
 
 pub fn eval_f64(e: &Expr) -> Result<f64, String> {
-    let finite = |v: f64, what: &str| {
+    let check = |v: f64, operands: [f64; 2], what: &str| {
         if v.is_nan() {
             Err(format!("{what} is undefined"))
-        } else if v.is_infinite() {
+        } else if v.is_infinite() && operands.iter().all(|x| x.is_finite()) {
             Err(format!("{what} overflows"))
         } else {
             Ok(v)
         }
     };
+    let both =
+        |a: &Expr, b: &Expr| -> Result<(f64, f64), String> { Ok((eval_f64(a)?, eval_f64(b)?)) };
     match e {
         Expr::Num(r) => Ok(number::to_f64(r)),
-        Expr::Constant(c) => Ok(c.value()),
+        Expr::Constant(c) => c
+            .value()
+            .ok_or_else(|| "Result is complex (needs complex evaluation)".to_string()),
         Expr::Variable(name) => Err(format!("Unknown variable '{name}'")),
         Expr::Neg(a) => Ok(-eval_f64(a)?),
-        Expr::Add(a, b) => finite(eval_f64(a)? + eval_f64(b)?, "Sum"),
-        Expr::Sub(a, b) => finite(eval_f64(a)? - eval_f64(b)?, "Difference"),
-        Expr::Mul(a, b) => finite(eval_f64(a)? * eval_f64(b)?, "Product"),
+        Expr::Add(a, b) => {
+            let (l, r) = both(a, b)?;
+            check(l + r, [l, r], "Sum")
+        }
+        Expr::Sub(a, b) => {
+            let (l, r) = both(a, b)?;
+            check(l - r, [l, r], "Difference")
+        }
+        Expr::Mul(a, b) => {
+            let (l, r) = both(a, b)?;
+            check(l * r, [l, r], "Product")
+        }
         Expr::Div(a, b) => {
-            let (l, r) = (eval_f64(a)?, eval_f64(b)?);
+            let (l, r) = both(a, b)?;
             if r == 0.0 {
                 Err("Division by zero".to_string())
             } else {
-                finite(l / r, "Quotient")
+                check(l / r, [l, r], "Quotient")
             }
         }
-        Expr::Pow(a, b) => finite(eval_f64(a)?.powf(eval_f64(b)?), "Power"),
+        Expr::Pow(a, b) => {
+            let (l, r) = both(a, b)?;
+            if (l.abs() == 1.0 && r.is_infinite()) || (l.is_infinite() && r == 0.0) {
+                return Err("Power is undefined".to_string());
+            }
+            check(l.powf(r), [l, r], "Power")
+        }
         Expr::Call(name, args) => {
             let values = args.iter().map(eval_f64).collect::<Result<Vec<_>, _>>()?;
             functions::call(name, &values)
@@ -268,17 +288,266 @@ pub fn eval_f64(e: &Expr) -> Result<f64, String> {
     }
 }
 
-pub fn fold_numeric(e: &Expr) -> Result<Expr, String> {
+fn infinity(sign_of: f64) -> Expr {
+    let inf = Expr::Constant(MathConstant::Inf);
+    if sign_of < 0.0 {
+        Expr::Neg(Box::new(inf))
+    } else {
+        inf
+    }
+}
+
+pub fn resolve_infinity(e: &Expr) -> Result<Expr, String> {
+    if e.is_closed()
+        && e.contains_constant(MathConstant::Inf)
+        && !e.contains_constant(MathConstant::I)
+        && !matches!(e, Expr::Eq(..))
+    {
+        let v = eval_f64(e)?;
+        return Ok(if v.is_infinite() {
+            infinity(v)
+        } else if v == 0.0 {
+            Expr::Num(Rational::zero())
+        } else {
+            e.clone()
+        });
+    }
+    e.try_map(&mut resolve_infinity)
+}
+
+pub fn fold_numeric(e: &Expr, complex: bool) -> Result<Expr, String> {
     if matches!(e, Expr::Num(_)) {
         return Ok(e.clone());
     }
     if e.is_closed() && !matches!(e, Expr::Eq(..)) {
-        let v = eval_f64(e)?;
-        return from_f64(v)
-            .map(Expr::Num)
-            .ok_or_else(|| "Result is not finite".to_string());
+        return fold_closed(e, complex);
     }
-    e.try_map(&mut fold_numeric)
+    e.try_map(&mut |c| fold_numeric(c, complex))
+}
+
+fn fold_closed(e: &Expr, complex: bool) -> Result<Expr, String> {
+    let real = if e.contains_constant(MathConstant::I) {
+        Err("Result is complex".to_string())
+    } else {
+        eval_f64(e)
+    };
+    match real {
+        Ok(v) if v.is_infinite() => Ok(infinity(v)),
+        Ok(v) => from_f64(v)
+            .map(Expr::Num)
+            .ok_or_else(|| "Result is not finite".to_string()),
+        Err(_) if complex => {
+            let z = clean(eval_c64(e)?);
+            match (from_f64(z.re), from_f64(z.im)) {
+                (Some(re), Some(im)) => Ok(complex_expr(re, im)),
+                _ => Err("Result is not finite".to_string()),
+            }
+        }
+        Err(err) => Err(err),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Complex numbers
+// ---------------------------------------------------------------------------
+
+pub fn eval_c64(e: &Expr) -> Result<Complex64, String> {
+    let check = |v: Complex64, operands: [Complex64; 2], what: &str| {
+        if v.re.is_nan() || v.im.is_nan() {
+            Err(format!("{what} is undefined"))
+        } else if !v.is_finite() && operands.iter().all(|x| x.is_finite()) {
+            Err(format!("{what} overflows"))
+        } else {
+            Ok(v)
+        }
+    };
+    let both = |a: &Expr, b: &Expr| -> Result<(Complex64, Complex64), String> {
+        Ok((eval_c64(a)?, eval_c64(b)?))
+    };
+    match e {
+        Expr::Num(r) => Ok(Complex64::new(number::to_f64(r), 0.0)),
+        Expr::Constant(c) => Ok(match c.value() {
+            Some(v) => Complex64::new(v, 0.0),
+            None => Complex64::new(0.0, 1.0),
+        }),
+        Expr::Variable(name) => Err(format!("Unknown variable '{name}'")),
+        Expr::Neg(a) => Ok(-eval_c64(a)?),
+        Expr::Add(a, b) => {
+            let (l, r) = both(a, b)?;
+            check(l + r, [l, r], "Sum")
+        }
+        Expr::Sub(a, b) => {
+            let (l, r) = both(a, b)?;
+            check(l - r, [l, r], "Difference")
+        }
+        Expr::Mul(a, b) => {
+            let (l, r) = both(a, b)?;
+            check(l * r, [l, r], "Product")
+        }
+        Expr::Div(a, b) => {
+            let (l, r) = both(a, b)?;
+            if r.re == 0.0 && r.im == 0.0 {
+                Err("Division by zero".to_string())
+            } else {
+                check(l / r, [l, r], "Quotient")
+            }
+        }
+        Expr::Pow(a, b) => {
+            let (l, r) = both(a, b)?;
+            if l.re == 0.0 && l.im == 0.0 {
+                return if r.im == 0.0 && r.re > 0.0 {
+                    Ok(Complex64::new(0.0, 0.0))
+                } else {
+                    Err("Power is undefined".to_string())
+                };
+            }
+            let power = if r.im == 0.0 && r.re.fract() == 0.0 && r.re.abs() <= 64.0 {
+                l.powi(r.re as i32)
+            } else {
+                l.powc(r)
+            };
+            check(power, [l, r], "Power")
+        }
+        Expr::Call(name, args) => {
+            let values = args.iter().map(eval_c64).collect::<Result<Vec<_>, _>>()?;
+            functions::call_complex(name, &values)
+        }
+        Expr::Eq(..) => Err("An equation has no numeric value".to_string()),
+    }
+}
+
+fn clean(z: Complex64) -> Complex64 {
+    let tolerance = 1e-12 * z.re.abs().max(z.im.abs());
+    Complex64::new(
+        if z.re.abs() <= tolerance { 0.0 } else { z.re },
+        if z.im.abs() <= tolerance { 0.0 } else { z.im },
+    )
+}
+
+pub fn complex_expr(re: Rational, im: Rational) -> Expr {
+    let unit = || Expr::Constant(MathConstant::I);
+    let imaginary = |b: &Rational| {
+        if b.is_one() {
+            unit()
+        } else {
+            Expr::Mul(Box::new(Expr::Num(b.clone())), Box::new(unit()))
+        }
+    };
+    if im.is_zero() {
+        return Expr::Num(re);
+    }
+    let magnitude = imaginary(&im.abs());
+    if re.is_zero() {
+        return if im.is_negative() {
+            Expr::Neg(Box::new(magnitude))
+        } else {
+            magnitude
+        };
+    }
+    let (l, r) = (Box::new(Expr::Num(re)), Box::new(magnitude));
+    if im.is_negative() {
+        Expr::Sub(l, r)
+    } else {
+        Expr::Add(l, r)
+    }
+}
+
+type Cx = (Rational, Rational);
+
+fn cx_mul(a: &Cx, b: &Cx) -> Cx {
+    (&a.0 * &b.0 - &a.1 * &b.1, &a.0 * &b.1 + &a.1 * &b.0)
+}
+
+fn cx_div(a: &Cx, b: &Cx) -> Option<Cx> {
+    let norm = &b.0 * &b.0 + &b.1 * &b.1;
+    if norm.is_zero() {
+        return None;
+    }
+    let (re, im) = cx_mul(a, &(b.0.clone(), -b.1.clone()));
+    Some((re / &norm, im / &norm))
+}
+
+fn cx_pow(z: &Cx, n: i64) -> Option<Cx> {
+    if n.abs() > 1024 {
+        return None;
+    }
+    let (mut result, mut base): (Cx, Cx) = ((Rational::one(), Rational::zero()), z.clone());
+    let mut k = n.unsigned_abs();
+    while k > 0 {
+        if k & 1 == 1 {
+            result = cx_mul(&result, &base);
+        }
+        base = cx_mul(&base, &base);
+        k >>= 1;
+    }
+    if n < 0 {
+        cx_div(&(Rational::one(), Rational::zero()), &result)
+    } else {
+        Some(result)
+    }
+}
+
+fn exact_complex(e: &Expr) -> Option<Cx> {
+    let zero = Rational::zero;
+    match e {
+        Expr::Num(r) => Some((r.clone(), zero())),
+        Expr::Constant(MathConstant::I) => Some((zero(), Rational::one())),
+        Expr::Neg(a) => exact_complex(a).map(|(re, im)| (-re, -im)),
+        Expr::Add(a, b) => {
+            let (x, y) = (exact_complex(a)?, exact_complex(b)?);
+            Some((x.0 + y.0, x.1 + y.1))
+        }
+        Expr::Sub(a, b) => {
+            let (x, y) = (exact_complex(a)?, exact_complex(b)?);
+            Some((x.0 - y.0, x.1 - y.1))
+        }
+        Expr::Mul(a, b) => Some(cx_mul(&exact_complex(a)?, &exact_complex(b)?)),
+        Expr::Div(a, b) => cx_div(&exact_complex(a)?, &exact_complex(b)?),
+        Expr::Pow(a, b) => {
+            let (exp_re, exp_im) = exact_complex(b)?;
+            if !exp_im.is_zero() || !number::is_integer(&exp_re) {
+                return None;
+            }
+            cx_pow(&exact_complex(a)?, exp_re.numer().to_i64()?)
+        }
+        Expr::Call(name, args) => match (name.as_str(), args.as_slice()) {
+            ("sqrt", [x]) => {
+                let (re, im) = exact_complex(x)?;
+                if !im.is_zero() {
+                    return None;
+                }
+                if re.is_negative() {
+                    sqrt_exact(&-re).map(|root| (zero(), root))
+                } else {
+                    sqrt_exact(&re).map(|root| (root, zero()))
+                }
+            }
+            ("abs", [x]) => {
+                let (re, im) = exact_complex(x)?;
+                sqrt_exact(&(&re * &re + &im * &im)).map(|norm| (norm, zero()))
+            }
+            ("frac", [a, b]) => cx_div(&exact_complex(a)?, &exact_complex(b)?),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn mentions_call(e: &Expr, name: &str) -> bool {
+    matches!(e, Expr::Call(n, _) if n == name)
+        || e.children().into_iter().any(|c| mentions_call(c, name))
+}
+
+pub fn complex_exact(e: &Expr) -> Expr {
+    if e.is_closed()
+        && !matches!(e, Expr::Eq(..))
+        && (e.contains_constant(MathConstant::I) || mentions_call(e, "sqrt"))
+        && let Some((re, im)) = exact_complex(e)
+    {
+        return complex_expr(re, im);
+    }
+    e.try_map::<()>(&mut |c| Ok(complex_exact(c)))
+        .expect("infallible")
 }
 
 pub fn first_free_variable(e: &Expr) -> Option<&str> {

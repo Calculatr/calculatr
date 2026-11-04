@@ -1,7 +1,7 @@
 use num_traits::Signed;
 
 use crate::features::core::Answer;
-use crate::features::core::ast::{Expr, Stmt};
+use crate::features::core::ast::{ANS, Expr, MathConstant, Stmt};
 use crate::features::core::format::{fractional_coefficient, prec};
 use crate::features::core::functions::{self, TypstForm};
 use crate::features::core::number::{self, NumFmt, Rational};
@@ -102,6 +102,13 @@ pub fn expr_math(e: &Expr, fmt: NumFmt) -> String {
     out
 }
 
+fn typst_symbol(c: MathConstant) -> &'static str {
+    match c {
+        MathConstant::Inf => "infinity",
+        other => other.name(),
+    }
+}
+
 fn variable(name: &str) -> String {
     let mut it = name.chars();
     match (it.next(), it.next()) {
@@ -158,7 +165,8 @@ fn emit_inner(e: &Expr, fmt: NumFmt, out: &mut String) {
 
     match e {
         Expr::Num(r) => emit_number(r, fmt, out),
-        Expr::Constant(c) => out.push_str(&format!("ccon({})", c.name())),
+        Expr::Constant(c) => out.push_str(&format!("ccon({})", typst_symbol(*c))),
+        Expr::Variable(name) if name == ANS => out.push_str("ccon(\"ans\")"),
         Expr::Variable(name) => out.push_str(&variable(name)),
         Expr::Neg(a) => {
             out.push_str("cun(-) ");

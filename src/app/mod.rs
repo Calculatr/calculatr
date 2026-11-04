@@ -82,10 +82,11 @@ impl App {
     }
 
     pub fn build(picker: Picker, settings: Settings, state: Option<SavedState>) -> Self {
-        let (render_mode, history, env) = match state {
+        let (render_mode, history, mut env) = match state {
             Some(s) => (s.render_mode, s.history, s.env),
             None => (RenderMode::Decimal, Vec::new(), Environment::new()),
         };
+        env.set_complex(settings.complex_numbers);
         Self {
             tab: Tab::Calculator,
             focus: Focus::Input,

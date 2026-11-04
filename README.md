@@ -163,6 +163,11 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 **Constants**
 - [x] `pi`
 - [x] `e`
+- [X] `tau`
+- [X] `phi`
+- [X] `i` (imaginary unit)
+- [X] `inf`
+- [X] `ans` (last result)
 
 **Operators and syntax**
 - [x] `+`
@@ -198,11 +203,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 ### Missing
 
 **Constants**
-- [ ] `tau`
-- [ ] `phi`
-- [ ] `i` (imaginary unit)
-- [ ] `inf`
-- [ ] `ans` (last result)
+- tbd
 
 **Operators and syntax**
 - [ ] `!` (factorial)
