@@ -167,6 +167,9 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_frac)
         .complex(|a| a[0] / a[1])
         .typst(TypstForm::Frac),
+    // Commands
+    FunctionDef::new("clear", &[], "Clear the history", Eval::Command),
+    FunctionDef::new("delvar", &["name"], "Delete a variable", Eval::Command),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static FunctionDef> {
