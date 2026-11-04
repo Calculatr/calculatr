@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 
 use super::algebra;
 use super::answer::{Answer, Evaluation};
-use super::ast::{Expr, MathConstant, Stmt};
+use super::ast::{ANS, Expr, MathConstant, Stmt};
 use super::functions;
 use super::number::NumFmt;
 use super::parser::parse_stmt;
@@ -33,11 +33,23 @@ impl RenderMode {
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Environment {
     vars: HashMap<String, Expr>,
+    #[serde(default)]
+    last: Option<Expr>,
+    #[serde(skip)]
+    complex: bool,
 }
 
 impl Environment {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn set_complex(&mut self, on: bool) {
+        self.complex = on;
+    }
+
+    pub fn complex(&self) -> bool {
+        self.complex
     }
 
     pub fn get_expr(&self, name: &str) -> Option<&Expr> {
@@ -60,8 +72,11 @@ impl Environment {
     }
 
     pub fn check_assign(&self, name: &str, expr: &Expr) -> Result<(), String> {
-        if MathConstant::from_name(name).is_some() {
+        if MathConstant::from_name(name).is_some() || name == ANS {
             return Err(format!("'{name}' is a constant and read-only"));
+        }
+        if self.complex && name == MathConstant::I.name() {
+            return Err("'i' is the imaginary unit while complex numbers are enabled".to_string());
         }
         if functions::lookup(name).is_some() {
             return Err(format!("'{name}' is a function name"));
@@ -78,6 +93,12 @@ impl Environment {
         self.check_assign(name, &expr)?;
         self.vars.insert(name.to_string(), expr);
         Ok(())
+    }
+
+    fn remember(&mut self, exact: &Expr) {
+        if !matches!(exact, Expr::Eq(..)) {
+            self.last = Some(exact.clone());
+        }
     }
 
     pub fn remove_var(&mut self, name: &str) -> bool {
@@ -109,6 +130,14 @@ impl Environment {
         }
     }
 
+    fn bind_ans(&self, expr: &Expr) -> Result<Expr, String> {
+        if !expr.mentions(ANS) {
+            return Ok(expr.clone());
+        }
+        let last = self.last.as_ref().ok_or("No previous result for 'ans'")?;
+        Ok(expr.replace_var(ANS, last))
+    }
+
     pub fn substitute(&self, expr: &Expr) -> Result<Expr, String> {
         self.substitute_inner(expr, &mut Vec::new(), true)
     }
@@ -120,6 +149,13 @@ impl Environment {
         top: bool,
     ) -> Result<Expr, String> {
         match e {
+            Expr::Variable(name) if self.complex && name == MathConstant::I.name() => {
+                Ok(Expr::Constant(MathConstant::I))
+            }
+            Expr::Variable(name) if name == ANS => self
+                .last
+                .clone()
+                .ok_or_else(|| "No previous result for 'ans'".to_string()),
             Expr::Variable(name) => {
                 let Some(def) = self.vars.get(name) else {
                     return Ok(e.clone());
@@ -147,17 +183,29 @@ impl Environment {
     }
 }
 
+struct Resolved {
+    exact: Expr,
+    shown: Expr,
+}
+
 fn resolve(
     env: &Environment,
     expr: &Expr,
     mode: RenderMode,
     allow_free_variables: bool,
-) -> Result<Expr, String> {
-    let exact = algebra::simplify(&env.substitute(expr)?)?;
+) -> Result<Resolved, String> {
+    let substituted = algebra::resolve_infinity(&env.substitute(expr)?)?;
+    let mut exact = algebra::simplify(&substituted)?;
+    if env.complex {
+        exact = algebra::complex_exact(&exact);
+    }
     match mode {
-        RenderMode::Symbolic => Ok(exact),
+        RenderMode::Symbolic => Ok(Resolved {
+            shown: exact.clone(),
+            exact,
+        }),
         RenderMode::Decimal => {
-            let folded = algebra::fold_numeric(&exact)?;
+            let folded = algebra::fold_numeric(&exact, env.complex)?;
             if !allow_free_variables
                 && !matches!(folded, Expr::Eq(..))
                 && let Some(name) = algebra::first_free_variable(&folded)
@@ -166,7 +214,10 @@ fn resolve(
                     "Unknown variable '{name}' (define it with {name} := …)"
                 ));
             }
-            Ok(folded)
+            Ok(Resolved {
+                exact,
+                shown: folded,
+            })
         }
     }
 }
@@ -191,11 +242,14 @@ pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluat
             return run_command(env, &name, &args);
         }
         Ok(Stmt::Expr(expr)) => match resolve(env, &expr, mode, false) {
-            Ok(expr) => Answer::Value {
-                label: None,
-                expr,
-                fmt,
-            },
+            Ok(resolved) => {
+                env.remember(&resolved.exact);
+                Answer::Value {
+                    label: None,
+                    expr: resolved.shown,
+                    fmt,
+                }
+            }
             Err(e) => Answer::Error(e),
         },
         Ok(Stmt::Assign(name, expr)) => assign(env, name, expr, mode),
@@ -204,15 +258,18 @@ pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluat
 }
 
 fn assign(env: &mut Environment, name: String, expr: Expr, mode: RenderMode) -> Answer {
-    let result = env
-        .check_assign(&name, &expr)
-        .and_then(|()| resolve(env, &expr, mode, true));
+    let result = env.bind_ans(&expr).and_then(|expr| {
+        env.check_assign(&name, &expr)?;
+        let resolved = resolve(env, &expr, mode, true)?;
+        Ok((expr, resolved))
+    });
     match result {
-        Ok(value) => {
+        Ok((expr, resolved)) => {
             let _ = env.assign(&name, expr);
+            env.remember(&resolved.exact);
             Answer::Value {
                 label: Some(name),
-                expr: value,
+                expr: resolved.shown,
                 fmt: mode.num_fmt(),
             }
         }

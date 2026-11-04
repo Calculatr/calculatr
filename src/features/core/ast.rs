@@ -1,20 +1,31 @@
+// use num_complex::Complex;
 use serde::{Deserialize, Serialize};
 
 use super::number::Rational;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub const ANS: &str = "ans";
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum MathConstant {
     Pi,
     E,
+    Tau,
+    Phi,
+    Inf,
+    I,
 }
 
 impl MathConstant {
-    pub const ALL: &[MathConstant] = &[Self::Pi, Self::E];
+    pub const ALL: &[MathConstant] = &[Self::Pi, Self::E, Self::Tau, Self::Phi, Self::Inf];
 
     pub fn name(self) -> &'static str {
         match self {
             Self::Pi => "pi",
             Self::E => "e",
+            Self::Tau => "tau",
+            Self::Phi => "phi",
+            Self::Inf => "inf",
+            Self::I => "i",
         }
     }
 
@@ -22,10 +33,14 @@ impl MathConstant {
         Self::ALL.iter().copied().find(|c| c.name() == name)
     }
 
-    pub fn value(self) -> f64 {
+    pub fn value(self) -> Option<f64> {
         match self {
-            Self::Pi => std::f64::consts::PI,
-            Self::E => std::f64::consts::E,
+            Self::Pi => Some(std::f64::consts::PI),
+            Self::E => Some(std::f64::consts::E),
+            Self::Tau => Some(std::f64::consts::TAU),
+            Self::Phi => Some(std::f64::consts::GOLDEN_RATIO),
+            Self::Inf => Some(f64::INFINITY),
+            Self::I => None,
         }
     }
 }
@@ -103,6 +118,13 @@ impl Expr {
         match self {
             Expr::Variable(n) => n == name,
             _ => self.children().into_iter().any(|c| c.mentions(name)),
+        }
+    }
+
+    pub fn contains_constant(&self, c: MathConstant) -> bool {
+        match self {
+            Expr::Constant(k) => *k == c,
+            _ => self.children().into_iter().any(|e| e.contains_constant(c)),
         }
     }
 

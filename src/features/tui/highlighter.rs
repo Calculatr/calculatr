@@ -1,5 +1,5 @@
 use super::theme::TokenKind;
-use crate::features::core::ast::MathConstant;
+use crate::features::core::ast::{ANS, MathConstant};
 use crate::features::core::functions;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,7 +39,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
                 i += 1;
             }
             let word: String = chars[start..i].iter().collect();
-            let kind = if MathConstant::from_name(&word).is_some() {
+            let kind = if MathConstant::from_name(&word).is_some() || word == ANS {
                 TokenKind::Constant
             } else if functions::lookup(&word).is_some() || next_non_space(i) == Some('(') {
                 TokenKind::Function

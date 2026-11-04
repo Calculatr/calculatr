@@ -1,7 +1,10 @@
 use super::number::{self, Rational};
+use num_complex::Complex64;
 use num_traits::{Signed, Zero};
 
 pub type ExactFn = fn(&[Rational]) -> Option<Rational>;
+
+pub type ComplexFn = fn(&[Complex64]) -> Complex64;
 
 pub enum Eval {
     F1(fn(f64) -> f64),
@@ -23,6 +26,7 @@ pub struct FunctionDef {
     pub doc: &'static str,
     pub eval: Eval,
     pub exact: Option<ExactFn>,
+    pub complex: Option<ComplexFn>,
     pub typst: TypstForm,
 }
 
@@ -39,12 +43,18 @@ impl FunctionDef {
             doc,
             eval,
             exact: None,
+            complex: None,
             typst: TypstForm::Named,
         }
     }
 
     const fn exact(mut self, f: fn(&[Rational]) -> Option<Rational>) -> Self {
         self.exact = Some(f);
+        self
+    }
+
+    const fn complex(mut self, f: ComplexFn) -> Self {
+        self.complex = Some(f);
         self
     }
 
@@ -116,30 +126,47 @@ fn num_frac(a: &[f64]) -> Result<f64, String> {
 
 pub static FUNCTIONS: &[FunctionDef] = &[
     // Trigonometry (radians)
-    FunctionDef::new("sin", &["x"], "Sine, x in radians", Eval::F1(f64::sin)).exact(zero_at_zero),
-    FunctionDef::new("cos", &["x"], "Cosine, x in radians", Eval::F1(f64::cos)).exact(one_at_zero),
+    FunctionDef::new("sin", &["x"], "Sine, x in radians", Eval::F1(f64::sin))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].sin()),
+    FunctionDef::new("cos", &["x"], "Cosine, x in radians", Eval::F1(f64::cos))
+        .exact(one_at_zero)
+        .complex(|a| a[0].cos()),
     FunctionDef::new("tan", &["x"], "Tangent, x in radians", Eval::F1(f64::tan))
-        .exact(zero_at_zero),
-    FunctionDef::new("asin", &["x"], "Inverse sine", Eval::F1(f64::asin)).exact(zero_at_zero),
-    FunctionDef::new("acos", &["x"], "Inverse cosine", Eval::F1(f64::acos)).exact(zero_at_one),
-    FunctionDef::new("atan", &["x"], "Inverse tangent", Eval::F1(f64::atan)).exact(zero_at_zero),
+        .exact(zero_at_zero)
+        .complex(|a| a[0].tan()),
+    FunctionDef::new("asin", &["x"], "Inverse sine", Eval::F1(f64::asin))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].asin()),
+    FunctionDef::new("acos", &["x"], "Inverse cosine", Eval::F1(f64::acos))
+        .exact(zero_at_one)
+        .complex(|a| a[0].acos()),
+    FunctionDef::new("atan", &["x"], "Inverse tangent", Eval::F1(f64::atan))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].atan()),
     // Exponentials / logarithms
-    FunctionDef::new("exp", &["x"], "e to the power x", Eval::F1(f64::exp)).exact(one_at_zero),
-    FunctionDef::new("ln", &["x"], "Natural logarithm", Eval::F1(f64::ln)).exact(zero_at_one),
-    FunctionDef::new("log", &["x"], "Base-10 logarithm", Eval::F1(f64::log10)).exact(zero_at_one),
+    FunctionDef::new("exp", &["x"], "e to the power x", Eval::F1(f64::exp))
+        .exact(one_at_zero)
+        .complex(|a| a[0].exp()),
+    FunctionDef::new("ln", &["x"], "Natural logarithm", Eval::F1(f64::ln))
+        .exact(zero_at_one)
+        .complex(|a| a[0].ln()),
+    FunctionDef::new("log", &["x"], "Base-10 logarithm", Eval::F1(f64::log10))
+        .exact(zero_at_one)
+        .complex(|a| a[0].log(10.0)),
     // Algebra
     FunctionDef::new("sqrt", &["x"], "Square root", Eval::F1(f64::sqrt))
         .exact(exact_sqrt)
+        .complex(|a| a[0].sqrt())
         .typst(TypstForm::Sqrt),
     FunctionDef::new("abs", &["x"], "Absolute value", Eval::F1(f64::abs))
         .exact(exact_abs)
+        .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
     FunctionDef::new("frac", &["num", "den"], "Fraction", Eval::Checked(num_frac))
         .exact(exact_frac)
+        .complex(|a| a[0] / a[1])
         .typst(TypstForm::Frac),
-    // Commands
-    FunctionDef::new("clear", &[], "Clear the history", Eval::Command),
-    FunctionDef::new("delvar", &["name"], "Delete a variable", Eval::Command),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static FunctionDef> {
@@ -156,7 +183,6 @@ fn arity_error(def: &FunctionDef) -> String {
     )
 }
 
-/// Numerically evaluates `name(args)`.
 pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
     let def = lookup(name).ok_or_else(|| format!("Unknown function: {name}"))?;
     if args.len() != def.params.len() {
@@ -174,14 +200,31 @@ pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
     };
     if value.is_nan() {
         Err(format!("{name}() is undefined for this input"))
-    } else if value.is_infinite() {
+    } else if value.is_infinite() && args.iter().all(|a| a.is_finite()) {
         Err(format!("{name}() overflows or is infinite for this input"))
     } else {
         Ok(value)
     }
 }
 
-/// Exact evaluation, if the function supports it for these arguments.
+pub fn call_complex(name: &str, args: &[Complex64]) -> Result<Complex64, String> {
+    let def = lookup(name).ok_or_else(|| format!("Unknown function: {name}"))?;
+    if args.len() != def.params.len() {
+        return Err(arity_error(def));
+    }
+    let f = def
+        .complex
+        .ok_or_else(|| format!("{name}() doesn't support complex numbers"))?;
+    let value = f(args);
+    if value.re.is_nan() || value.im.is_nan() {
+        Err(format!("{name}() is undefined for this input"))
+    } else if !value.is_finite() && args.iter().all(|a| a.is_finite()) {
+        Err(format!("{name}() overflows or is infinite for this input"))
+    } else {
+        Ok(value)
+    }
+}
+
 pub fn call_exact(name: &str, args: &[Rational]) -> Option<Rational> {
     let def = lookup(name)?;
     if args.len() != def.params.len() {

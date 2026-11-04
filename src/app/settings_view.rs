@@ -95,6 +95,7 @@ impl App {
         match row {
             SettingsRow::Toggle(t) => {
                 self.settings.flip(t);
+                self.env.set_complex(self.settings.complex_numbers);
                 self.save_settings();
                 let state = if self.settings.get(t) { "on" } else { "off" };
                 self.set_status(format!("{}: {state}", t.label()));

@@ -10,6 +10,7 @@ pub struct Settings {
     pub typst_rendering: bool,
     pub auto_close_brackets: bool,
     pub system_clipboard: bool,
+    pub complex_numbers: bool,
     pub hotkeys: Keymap,
 }
 
@@ -19,6 +20,7 @@ impl Default for Settings {
             typst_rendering: true,
             auto_close_brackets: true,
             system_clipboard: true,
+            complex_numbers: false,
             hotkeys: Keymap::default(),
         }
     }
@@ -29,6 +31,7 @@ pub enum Toggle {
     TypstRendering,
     AutoCloseBrackets,
     SystemClipboard,
+    ComplexNumbers,
 }
 
 impl Toggle {
@@ -36,6 +39,7 @@ impl Toggle {
         Toggle::TypstRendering,
         Toggle::AutoCloseBrackets,
         Toggle::SystemClipboard,
+        Toggle::ComplexNumbers,
     ];
 
     pub fn label(self) -> &'static str {
@@ -43,6 +47,7 @@ impl Toggle {
             Toggle::TypstRendering => "Typst rendering",
             Toggle::AutoCloseBrackets => "Auto-close brackets",
             Toggle::SystemClipboard => "System clipboard",
+            Toggle::ComplexNumbers => "Complex numbers",
         }
     }
 
@@ -57,6 +62,9 @@ impl Toggle {
             Toggle::SystemClipboard => {
                 "Yanks also go to the system clipboard and p reads from it (terminal paste works in insert mode)"
             }
+            Toggle::ComplexNumbers => {
+                "i is the imaginary unit and sqrt(-4), ln(-1) ... give complex results (off: i is a normal variable)"
+            }
         }
     }
 }
@@ -67,6 +75,7 @@ impl Settings {
             Toggle::TypstRendering => self.typst_rendering,
             Toggle::AutoCloseBrackets => self.auto_close_brackets,
             Toggle::SystemClipboard => self.system_clipboard,
+            Toggle::ComplexNumbers => self.complex_numbers,
         }
     }
 
@@ -75,6 +84,7 @@ impl Settings {
             Toggle::TypstRendering => self.typst_rendering = !self.typst_rendering,
             Toggle::AutoCloseBrackets => self.auto_close_brackets = !self.auto_close_brackets,
             Toggle::SystemClipboard => self.system_clipboard = !self.system_clipboard,
+            Toggle::ComplexNumbers => self.complex_numbers = !self.complex_numbers,
         }
     }
 }

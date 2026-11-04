@@ -67,8 +67,10 @@ pub fn to_decimal_string(r: &Rational) -> String {
     if is_integer(r) {
         return if r.numer().bits() <= 128 {
             r.numer().to_string()
-        } else {
+        } else if to_f64(r).is_finite() {
             fmt_f64(to_f64(r))
+        } else {
+            fmt_huge_integer(r.numer())
         };
     }
     match decimal_digits(r) {
@@ -84,6 +86,25 @@ pub fn to_decimal_string(r: &Rational) -> String {
             format!("{sign}{}.{}", &s[..split], &s[split..])
         }
         _ => fmt_f64(to_f64(r)),
+    }
+}
+
+fn fmt_huge_integer(n: &BigInt) -> String {
+    let digits = n.abs().to_string();
+    let mut exponent = digits.len() - 1;
+    let lead: u64 = digits[..14].parse().unwrap_or(0);
+    let mut mantissa = (lead + 5) / 10;
+    if mantissa >= 10_000_000_000_000 {
+        mantissa /= 10;
+        exponent += 1;
+    }
+    let m = mantissa.to_string();
+    let frac = m[1..].trim_end_matches('0');
+    let sign = if n.is_negative() { "-" } else { "" };
+    if frac.is_empty() {
+        format!("{sign}{}e{exponent}", &m[..1])
+    } else {
+        format!("{sign}{}.{frac}e{exponent}", &m[..1])
     }
 }
 

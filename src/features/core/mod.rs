@@ -60,6 +60,16 @@ pub fn completions(env: &Environment) -> Vec<Candidate> {
         name: c.name().to_string(),
         kind: CandidateKind::Constant,
     }));
+    if env.complex() {
+        out.push(Candidate {
+            name: ast::MathConstant::I.name().to_string(),
+            kind: CandidateKind::Constant,
+        });
+    }
+    out.push(Candidate {
+        name: ast::ANS.to_string(),
+        kind: CandidateKind::Constant,
+    });
     out.extend(env.var_names().map(|n| Candidate {
         name: n.clone(),
         kind: CandidateKind::Variable,
