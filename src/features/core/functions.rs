@@ -112,6 +112,7 @@ fn exact_frac(a: &[Rational]) -> Option<Rational> {
 // Numeric hooks
 // ---------------------------------------------------------------------------
 
+// TODO: sum, subtract, mult
 fn num_frac(a: &[f64]) -> Result<f64, String> {
     match a {
         [_, d] if *d == 0.0 => Err("Division by zero".into()),
@@ -149,20 +150,20 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     // cot
     // atan2
     // Hyperbolic geometry
-    FunctionDef::new("sinh", &["x"], "SinH", Eval::F1(f64::sinh))
+    FunctionDef::new("sinh", &["x"], "Sinh", Eval::F1(f64::sinh))
         .exact(zero_at_zero)
         .complex(|a| a[0].sinh()),
-    FunctionDef::new("cosh", &["x"], "CosH", Eval::F1(f64::cosh))
-        .exact(zero_at_one)
+    FunctionDef::new("cosh", &["x"], "Cosh", Eval::F1(f64::cosh))
+        .exact(one_at_zero)
         .complex(|a| a[0].cosh()),
-    FunctionDef::new("tanh", &["x"], "TanH", Eval::F1(f64::tanh))
+    FunctionDef::new("tanh", &["x"], "Tanh", Eval::F1(f64::tanh))
         .exact(zero_at_zero)
         .complex(|a| a[0].tanh()),
-    FunctionDef::new("asinh", &["x"], "Inverse sinh", Eval::F1(f64::sinh))
+    FunctionDef::new("asinh", &["x"], "Inverse sinh", Eval::F1(f64::asinh))
         .exact(zero_at_zero)
         .complex(|a| a[0].atanh()),
     FunctionDef::new("acosh", &["x"], "Inverse cosh", Eval::F1(f64::acosh))
-        .exact(one_at_zero)
+        .exact(zero_at_one)
         .complex(|a| a[0].acosh()),
     FunctionDef::new("atanh", &["x"], "Inverse tanh", Eval::F1(f64::atanh))
         .exact(zero_at_zero)
@@ -186,6 +187,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
+    // TODO: sum, subtract, mult
     FunctionDef::new("frac", &["num", "den"], "Fraction", Eval::Checked(num_frac))
         .exact(exact_frac)
         .complex(|a| a[0] / a[1])
