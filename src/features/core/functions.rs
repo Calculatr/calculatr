@@ -144,7 +144,30 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("atan", &["x"], "Inverse tangent", Eval::F1(f64::atan))
         .exact(zero_at_zero)
         .complex(|a| a[0].atan()),
-    // Exponentials / logarithms
+    // sec
+    // csc
+    // cot
+    // atan2
+    // Hyperbolic geometry
+    FunctionDef::new("sinh", &["x"], "SinH", Eval::F1(f64::sinh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].sinh()),
+    FunctionDef::new("cosh", &["x"], "CosH", Eval::F1(f64::cosh))
+        .exact(zero_at_one)
+        .complex(|a| a[0].cosh()),
+    FunctionDef::new("tanh", &["x"], "TanH", Eval::F1(f64::tanh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].tanh()),
+    FunctionDef::new("asinh", &["x"], "Inverse sinh", Eval::F1(f64::sinh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].atanh()),
+    FunctionDef::new("acosh", &["x"], "Inverse cosh", Eval::F1(f64::acosh))
+        .exact(one_at_zero)
+        .complex(|a| a[0].acosh()),
+    FunctionDef::new("atanh", &["x"], "Inverse tanh", Eval::F1(f64::atanh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].atanh()),
+    // Powers and Logarythms
     FunctionDef::new("exp", &["x"], "e to the power x", Eval::F1(f64::exp))
         .exact(one_at_zero)
         .complex(|a| a[0].exp()),
