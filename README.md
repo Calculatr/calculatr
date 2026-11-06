@@ -218,6 +218,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [X] `trunc`
 - [X] `fract`
 - [X] `sign`
+- [X] `gcd`
 
 **Commands**
 - [x] `clear`
@@ -249,7 +250,6 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] round_ties_even (toggle)
 
 **Number theory and combinatorics**
-- [ ] `gcd`
 - [ ] `lcm`
 - [ ] `mod`
 - [ ] `fact`
