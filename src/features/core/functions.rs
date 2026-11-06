@@ -102,6 +102,27 @@ fn exact_abs(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_add(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] => Some(x + y),
+        _ => None,
+    }
+}
+
+fn exact_sub(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] => Some(x - y),
+        _ => None,
+    }
+}
+
+fn exact_mult(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] => Some(x * y),
+        _ => None,
+    }
+}
+
 fn exact_frac(a: &[Rational]) -> Option<Rational> {
     match a {
         [n, d] if !d.is_zero() => Some(n / d),
@@ -161,7 +182,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .complex(|a| a[0].tanh()),
     FunctionDef::new("asinh", &["x"], "Inverse sinh", Eval::F1(f64::asinh))
         .exact(zero_at_zero)
-        .complex(|a| a[0].atanh()),
+        .complex(|a| a[0].asinh()),
     FunctionDef::new("acosh", &["x"], "Inverse cosh", Eval::F1(f64::acosh))
         .exact(zero_at_one)
         .complex(|a| a[0].acosh()),
@@ -188,8 +209,10 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
     FunctionDef::new("add", &["x", "y"], "Addidtion", Eval::F2(|x, y| x + y))
+        .exact(exact_add)
         .complex(|a| a[0] + a[1]),
     FunctionDef::new("sub", &["x", "y"], "Subtraction", Eval::F2(|x, y| x - y))
+        .exact(exact_sub)
         .complex(|a| a[0] - a[1]),
     FunctionDef::new(
         "mult",
@@ -197,6 +220,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         "Multiplication",
         Eval::F2(|x, y| x * y),
     )
+    .exact(exact_mult)
     .complex(|a| a[0] * a[1]),
     FunctionDef::new("frac", &["num", "den"], "Fraction", Eval::Checked(num_frac))
         .exact(exact_frac)
