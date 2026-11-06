@@ -204,7 +204,16 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [x] `log`
 - [x] `sqrt`
 - [x] `abs`
+- [x] `add`
+- [x] `sub`
+- [x] `mult`
 - [x] `frac`
+- [X] `floor`
+- [X] `ceil`
+- [X] `round`
+- [X] `trunc`
+- [X] `fract`
+- [X] `sign`
 
 **Commands**
 - [x] `clear`
@@ -237,12 +246,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] `hypot`
 
 **Rounding and sign**
-- [ ] `floor`
-- [ ] `ceil`
-- [ ] `round`
-- [ ] `trunc`
-- [ ] `fract`
-- [ ] `sign`
+- [ ] round_ties_even (toggle)
 
 **Number theory and combinatorics**
 - [ ] `gcd`
