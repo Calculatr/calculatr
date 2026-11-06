@@ -189,6 +189,16 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [x] `asin`
 - [x] `acos`
 - [x] `atan`
+- [X] `sinh`
+- [X] `cosh`
+- [X] `tanh`
+- [X] `asinh`
+- [X] `acosh`
+- [X] `atanh`
+- [X] `sec`
+- [X] `csc`
+- [X] `cot`
+- [X] `atan2`
 - [x] `exp`
 - [x] `ln`
 - [x] `log`
@@ -215,16 +225,6 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] user-defined functions (`f(x) := x^2`)
 
 **Trigonometry**
-- [ ] `sinh`
-- [ ] `cosh`
-- [ ] `tanh`
-- [ ] `asinh`
-- [ ] `acosh`
-- [ ] `atanh`
-- [ ] `sec`
-- [ ] `csc`
-- [ ] `cot`
-- [ ] `atan2`
 - [ ] `deg` (rad to deg)
 - [ ] `rad` (deg to rad)
 
@@ -289,3 +289,4 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] Number of decimal places and rounding mode as settings
 - [ ] Radian / degree mode
 - [x] Copy to clipboard in Visual mode
+- [ ] Projects (Saveable states) for stored variables / Subfolders -> physics::g so theres a tree with organized variables

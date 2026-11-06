@@ -1,15 +1,16 @@
 use super::number::{self, Rational};
 use num_complex::Complex64;
-use num_traits::{Signed, Zero};
+use num_traits::{Inv, Signed, Zero};
 
 pub type ExactFn = fn(&[Rational]) -> Option<Rational>;
 
 pub type ComplexFn = fn(&[Complex64]) -> Complex64;
 
 pub enum Eval {
-    F1(fn(f64) -> f64),
-    Checked(fn(&[f64]) -> Result<f64, String>),
-    Command,
+    F1(fn(f64) -> f64),                         // INFO: Simple 1 var in -> 1 out
+    F2(fn(f64, f64) -> f64),                    // INFO: Simple 2 var in -> 1 out
+    Checked(fn(&[f64]) -> Result<f64, String>), // INFO: Complex mult var in -> 1 out (x/0 returns error)
+    Command,                                    // INFO: Command such as clear()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -101,6 +102,27 @@ fn exact_abs(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_add(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] => Some(x + y),
+        _ => None,
+    }
+}
+
+fn exact_sub(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] => Some(x - y),
+        _ => None,
+    }
+}
+
+fn exact_mult(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] => Some(x * y),
+        _ => None,
+    }
+}
+
 fn exact_frac(a: &[Rational]) -> Option<Rational> {
     match a {
         [n, d] if !d.is_zero() => Some(n / d),
@@ -144,7 +166,42 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("atan", &["x"], "Inverse tangent", Eval::F1(f64::atan))
         .exact(zero_at_zero)
         .complex(|a| a[0].atan()),
-    // Exponentials / logarithms
+    FunctionDef::new("sec", &["x"], "Secant", Eval::F1(|x| 1.0 / x.cos()))
+        .exact(one_at_zero)
+        .complex(|a| a[0].cos().inv()),
+    FunctionDef::new("csc", &["x"], "Cosecant", Eval::F1(|x| 1.0 / x.sin()))
+        .complex(|a| a[0].sin().inv()),
+    FunctionDef::new("cot", &["x"], "Cotangent", Eval::F1(|x| 1.0 / x.tan())).complex(|a| {
+        let s = a[0].sin();
+        let c = a[0].cos();
+        c / s
+    }),
+    FunctionDef::new(
+        "atan2",
+        &["y", "x"],
+        "Arc tangent of y/x in radians (all quadrants)",
+        Eval::F2(|y, x| y.atan2(x)),
+    ),
+    // Hyperbolic geometry
+    FunctionDef::new("sinh", &["x"], "Sinh", Eval::F1(f64::sinh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].sinh()),
+    FunctionDef::new("cosh", &["x"], "Cosh", Eval::F1(f64::cosh))
+        .exact(one_at_zero)
+        .complex(|a| a[0].cosh()),
+    FunctionDef::new("tanh", &["x"], "Tanh", Eval::F1(f64::tanh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].tanh()),
+    FunctionDef::new("asinh", &["x"], "Inverse sinh", Eval::F1(f64::asinh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].asinh()),
+    FunctionDef::new("acosh", &["x"], "Inverse cosh", Eval::F1(f64::acosh))
+        .exact(zero_at_one)
+        .complex(|a| a[0].acosh()),
+    FunctionDef::new("atanh", &["x"], "Inverse tanh", Eval::F1(f64::atanh))
+        .exact(zero_at_zero)
+        .complex(|a| a[0].atanh()),
+    // Powers and Logarithms
     FunctionDef::new("exp", &["x"], "e to the power x", Eval::F1(f64::exp))
         .exact(one_at_zero)
         .complex(|a| a[0].exp()),
@@ -163,6 +220,20 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
+    FunctionDef::new("add", &["x", "y"], "Addition", Eval::F2(|x, y| x + y))
+        .exact(exact_add)
+        .complex(|a| a[0] + a[1]),
+    FunctionDef::new("sub", &["x", "y"], "Subtraction", Eval::F2(|x, y| x - y))
+        .exact(exact_sub)
+        .complex(|a| a[0] - a[1]),
+    FunctionDef::new(
+        "mult",
+        &["x", "y"],
+        "Multiplication",
+        Eval::F2(|x, y| x * y),
+    )
+    .exact(exact_mult)
+    .complex(|a| a[0] * a[1]),
     FunctionDef::new("frac", &["num", "den"], "Fraction", Eval::Checked(num_frac))
         .exact(exact_frac)
         .complex(|a| a[0] / a[1])
@@ -193,6 +264,7 @@ pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
     }
     let value = match (&def.eval, args) {
         (Eval::F1(f), [x]) => f(*x),
+        (Eval::F2(f), [x, y]) => f(*x, *y),
         (Eval::Checked(f), _) => f(args)?,
         (Eval::Command, _) => {
             return Err(format!(
