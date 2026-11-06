@@ -289,3 +289,4 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] Number of decimal places and rounding mode as settings
 - [ ] Radian / degree mode
 - [x] Copy to clipboard in Visual mode
+- [ ] Projects (Saveable states) for stored variables / Subfolders -> physics::g so theres a tree with organized variables

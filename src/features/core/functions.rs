@@ -7,9 +7,10 @@ pub type ExactFn = fn(&[Rational]) -> Option<Rational>;
 pub type ComplexFn = fn(&[Complex64]) -> Complex64;
 
 pub enum Eval {
-    F1(fn(f64) -> f64),
-    Checked(fn(&[f64]) -> Result<f64, String>),
-    Command,
+    F1(fn(f64) -> f64),                         // INFO: Simple 1 var in -> 1 out
+    F2(fn(f64, f64) -> f64),                    // INFO: Simple 2 var in -> 1 out
+    Checked(fn(&[f64]) -> Result<f64, String>), // INFO: Complex mult var in -> 1 out (x/0 returns error)
+    Command,                                    // INFO: Command such as clear()
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,7 +113,6 @@ fn exact_frac(a: &[Rational]) -> Option<Rational> {
 // Numeric hooks
 // ---------------------------------------------------------------------------
 
-// TODO: sum, subtract, mult
 fn num_frac(a: &[f64]) -> Result<f64, String> {
     match a {
         [_, d] if *d == 0.0 => Err("Division by zero".into()),
@@ -145,11 +145,11 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("atan", &["x"], "Inverse tangent", Eval::F1(f64::atan))
         .exact(zero_at_zero)
         .complex(|a| a[0].atan()),
-    // sec
-    // csc
-    // cot
-    // atan2
-    // Hyperbolic geometry
+    // TODO: sec
+    // TODO: csc
+    // TODO: cot
+    // TODO: atan2
+    // TODO: Hyperbolic geometry
     FunctionDef::new("sinh", &["x"], "Sinh", Eval::F1(f64::sinh))
         .exact(zero_at_zero)
         .complex(|a| a[0].sinh()),
@@ -187,7 +187,17 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
-    // TODO: sum, subtract, mult
+    FunctionDef::new("add", &["x", "y"], "Addidtion", Eval::F2(|x, y| x + y))
+        .complex(|a| a[0] + a[1]),
+    FunctionDef::new("sub", &["x", "y"], "Subtraction", Eval::F2(|x, y| x - y))
+        .complex(|a| a[0] - a[1]),
+    FunctionDef::new(
+        "mult",
+        &["x", "y"],
+        "Multiplication",
+        Eval::F2(|x, y| x * y),
+    )
+    .complex(|a| a[0] * a[1]),
     FunctionDef::new("frac", &["num", "den"], "Fraction", Eval::Checked(num_frac))
         .exact(exact_frac)
         .complex(|a| a[0] / a[1])
@@ -218,6 +228,7 @@ pub fn call(name: &str, args: &[f64]) -> Result<f64, String> {
     }
     let value = match (&def.eval, args) {
         (Eval::F1(f), [x]) => f(*x),
+        (Eval::F2(f), [x, y]) => f(*x, *y),
         (Eval::Checked(f), _) => f(args)?,
         (Eval::Command, _) => {
             return Err(format!(
