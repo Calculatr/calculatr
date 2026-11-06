@@ -294,3 +294,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] Radian / degree mode
 - [x] Copy to clipboard in Visual mode
 - [ ] Projects (Saveable states) for stored variables / Subfolders -> physics::g so theres a tree with organized variables
+
+## Bugs
+
+- [ ] When in autocomplete e.g. frac(<>, <>) the '<>' wont get removed on quick entering (select a value in history, press enter to quickenter)

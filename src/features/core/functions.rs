@@ -108,6 +108,13 @@ fn exact_cbrt(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_hypot(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [a, b] => number::sqrt_exact(&(a * a + b * b)),
+        _ => None,
+    }
+}
+
 fn exact_abs(a: &[Rational]) -> Option<Rational> {
     match a {
         [x] => Some(x.abs()),
@@ -266,6 +273,12 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("log", &["x"], "Base-10 logarithm", Eval::F1(f64::log10))
         .exact(zero_at_one)
         .complex(|a| a[0].log(10.0)),
+    FunctionDef::new("log10", &["x"], "Base-10 logarithm", Eval::F1(f64::log10))
+        .exact(zero_at_one)
+        .complex(|a| a[0].log(10.0)),
+    FunctionDef::new("log2", &["x"], "Base-10 logarithm", Eval::F1(f64::log2))
+        .exact(zero_at_one)
+        .complex(|a| a[0].log(2.0)),
     // Algebra
     FunctionDef::new("sqrt", &["x"], "Square root", Eval::F1(f64::sqrt))
         .exact(exact_sqrt)
@@ -275,6 +288,14 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_cbrt)
         .complex(|a| a[0].sqrt())
         .typst(TypstForm::Cbrt),
+    FunctionDef::new(
+        "hypot",
+        &["a", "b"],
+        "Hypotenuse, sqrt(a^2 + b^2)",
+        Eval::F2(f64::hypot),
+    )
+    .exact(exact_hypot)
+    .complex(|a| (a[0] * a[0] + a[1] * a[1]).sqrt()),
     FunctionDef::new("abs", &["x"], "Absolute value", Eval::F1(f64::abs))
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
