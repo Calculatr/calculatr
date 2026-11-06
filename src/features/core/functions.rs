@@ -170,7 +170,8 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     // TODO: csc
     // TODO: cot
     // TODO: atan2
-    // TODO: Hyperbolic geometry
+
+    // Hyperbolic geometry
     FunctionDef::new("sinh", &["x"], "Sinh", Eval::F1(f64::sinh))
         .exact(zero_at_zero)
         .complex(|a| a[0].sinh()),
@@ -189,7 +190,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("atanh", &["x"], "Inverse tanh", Eval::F1(f64::atanh))
         .exact(zero_at_zero)
         .complex(|a| a[0].atanh()),
-    // Powers and Logarythms
+    // Powers and Logarithms
     FunctionDef::new("exp", &["x"], "e to the power x", Eval::F1(f64::exp))
         .exact(one_at_zero)
         .complex(|a| a[0].exp()),
@@ -208,7 +209,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
-    FunctionDef::new("add", &["x", "y"], "Addidtion", Eval::F2(|x, y| x + y))
+    FunctionDef::new("add", &["x", "y"], "Addition", Eval::F2(|x, y| x + y))
         .exact(exact_add)
         .complex(|a| a[0] + a[1]),
     FunctionDef::new("sub", &["x", "y"], "Subtraction", Eval::F2(|x, y| x - y))
