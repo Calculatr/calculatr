@@ -1,6 +1,6 @@
 use super::number::{self, Rational};
 use num_complex::Complex64;
-use num_traits::{Signed, Zero};
+use num_traits::{Inv, Signed, Zero};
 
 pub type ExactFn = fn(&[Rational]) -> Option<Rational>;
 
@@ -166,11 +166,22 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("atan", &["x"], "Inverse tangent", Eval::F1(f64::atan))
         .exact(zero_at_zero)
         .complex(|a| a[0].atan()),
-    // TODO: sec
-    // TODO: csc
-    // TODO: cot
-    // TODO: atan2
-
+    FunctionDef::new("sec", &["x"], "Secant", Eval::F1(|x| 1.0 / x.cos()))
+        .exact(one_at_zero)
+        .complex(|a| a[0].cos().inv()),
+    FunctionDef::new("csc", &["x"], "Cosecant", Eval::F1(|x| 1.0 / x.sin()))
+        .complex(|a| a[0].sin().inv()),
+    FunctionDef::new("cot", &["x"], "Cotangent", Eval::F1(|x| 1.0 / x.tan())).complex(|a| {
+        let s = a[0].sin();
+        let c = a[0].cos();
+        c / s
+    }),
+    FunctionDef::new(
+        "atan2",
+        &["y", "x"],
+        "Arc tangent of y/x in radians (all quadrants)",
+        Eval::F2(|y, x| y.atan2(x)),
+    ),
     // Hyperbolic geometry
     FunctionDef::new("sinh", &["x"], "Sinh", Eval::F1(f64::sinh))
         .exact(zero_at_zero)
