@@ -189,6 +189,16 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [x] `asin`
 - [x] `acos`
 - [x] `atan`
+- [X] `sinh`
+- [X] `cosh`
+- [X] `tanh`
+- [X] `asinh`
+- [X] `acosh`
+- [X] `atanh`
+- [X] `sec`
+- [X] `csc`
+- [X] `cot`
+- [X] `atan2`
 - [x] `exp`
 - [x] `ln`
 - [x] `log`
@@ -215,16 +225,6 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] user-defined functions (`f(x) := x^2`)
 
 **Trigonometry**
-- [ ] `sinh`
-- [ ] `cosh`
-- [ ] `tanh`
-- [ ] `asinh`
-- [ ] `acosh`
-- [ ] `atanh`
-- [ ] `sec`
-- [ ] `csc`
-- [ ] `cot`
-- [ ] `atan2`
 - [ ] `deg` (rad to deg)
 - [ ] `rad` (deg to rad)
 
