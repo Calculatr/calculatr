@@ -202,6 +202,10 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [x] `exp`
 - [x] `ln`
 - [x] `log`
+- [X] `log10`
+- [X] `log2`
+- [X] `cbrt`
+- [X] `hypot`
 - [x] `sqrt`
 - [x] `abs`
 - [x] `add`
@@ -238,12 +242,8 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] `rad` (deg to rad)
 
 **Powers and logarithms**
-- [ ] `log2`
-- [ ] `log10`
 - [ ] `logb` (arbitrary base)
-- [ ] `cbrt`
 - [ ] `root`
-- [ ] `hypot`
 
 **Rounding and sign**
 - [ ] round_ties_even (toggle)

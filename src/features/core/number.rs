@@ -34,6 +34,14 @@ pub fn parse_decimal(s: &str) -> Option<Rational> {
     Some(Rational::new(numer, denom))
 }
 
+pub fn to_int_exact(x: f64) -> Option<i64> {
+    if x.is_finite() && x.fract() == 0.0 && x >= i64::MIN as f64 && x <= i64::MAX as f64 {
+        Some(x as i64)
+    } else {
+        None
+    }
+}
+
 pub fn to_f64(r: &Rational) -> f64 {
     r.to_f64().unwrap_or(f64::NAN)
 }
