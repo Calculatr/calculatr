@@ -17,6 +17,7 @@ pub enum Eval {
 pub enum TypstForm {
     Named,
     Sqrt,
+    Cbrt,
     Add,
     Sub,
     Mult,
@@ -96,6 +97,13 @@ at_point!(zero_at_one, 1 => 0);
 fn exact_sqrt(a: &[Rational]) -> Option<Rational> {
     match a {
         [x] => number::sqrt_exact(x),
+        _ => None,
+    }
+}
+
+fn exact_cbrt(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => number::cbrt_exact(x),
         _ => None,
     }
 }
@@ -263,6 +271,10 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_sqrt)
         .complex(|a| a[0].sqrt())
         .typst(TypstForm::Sqrt),
+    FunctionDef::new("cbrt", &["x"], "Cubic root", Eval::F1(f64::cbrt))
+        .exact(exact_cbrt)
+        .complex(|a| a[0].sqrt())
+        .typst(TypstForm::Cbrt),
     FunctionDef::new("abs", &["x"], "Absolute value", Eval::F1(f64::abs))
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
@@ -288,6 +300,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_frac)
         .complex(|a| a[0] / a[1])
         .typst(TypstForm::Frac),
+    // Rounding and Sign
     FunctionDef::new(
         "floor",
         &["x"],

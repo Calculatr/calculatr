@@ -171,6 +171,22 @@ pub fn sqrt_exact(r: &Rational) -> Option<Rational> {
     }
 }
 
+pub fn cbrt_exact(r: &Rational) -> Option<Rational> {
+    let is_neg = r.is_negative();
+    let num = r.numer().abs();
+    let den = r.denom();
+
+    let n = num.cbrt();
+    let d = den.cbrt();
+
+    if &(&n * &n * &n) == &num && &(&d * &d * &d) == den {
+        let res = Rational::new(n, d.clone());
+        Some(if is_neg { -res } else { res })
+    } else {
+        None
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
