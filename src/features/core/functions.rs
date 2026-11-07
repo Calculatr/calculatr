@@ -1,5 +1,6 @@
 use super::number::{self, Rational};
 use num_complex::Complex64;
+use num_integer::Integer;
 use num_traits::{Inv, Signed, Zero};
 
 pub type ExactFn = fn(&[Rational]) -> Option<Rational>;
@@ -17,8 +18,14 @@ pub enum Eval {
 pub enum TypstForm {
     Named,
     Sqrt,
+    Cbrt,
+    Add,
+    Sub,
+    Mult,
     Frac,
     Abs,
+    Floor,
+    Ceil,
 }
 
 pub struct FunctionDef {
@@ -95,6 +102,20 @@ fn exact_sqrt(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_cbrt(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => number::cbrt_exact(x),
+        _ => None,
+    }
+}
+
+fn exact_hypot(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [a, b] => number::sqrt_exact(&(a * a + b * b)),
+        _ => None,
+    }
+}
+
 fn exact_abs(a: &[Rational]) -> Option<Rational> {
     match a {
         [x] => Some(x.abs()),
@@ -130,6 +151,79 @@ fn exact_frac(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_floor(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => Some(x.floor()),
+        _ => None,
+    }
+}
+
+fn exact_ceil(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => Some(x.ceil()),
+        _ => None,
+    }
+}
+
+fn exact_round(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => Some(x.round()),
+        _ => None,
+    }
+}
+
+fn exact_trunc(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => Some(x.trunc()),
+        _ => None,
+    }
+}
+
+fn exact_fract(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => Some(x.fract()),
+        _ => None,
+    }
+}
+
+fn exact_signum(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x] => Some(x.signum()),
+        _ => None,
+    }
+}
+
+fn exact_gcd(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] if x.is_integer() && y.is_integer() => {
+            let g = x.to_integer().gcd(&y.to_integer());
+            Some(Rational::from_integer(g))
+        }
+        _ => None,
+    }
+}
+
+fn exact_lcm(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] if x.is_integer() && y.is_integer() => {
+            let l = x.to_integer().lcm(&y.to_integer());
+            Some(Rational::from_integer(l))
+        }
+        _ => None,
+    }
+}
+
+fn exact_mod(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, m] if !m.is_zero() => {
+            let m = m.abs();
+            let q = (x / &m).floor();
+            Some(x - &(q * &m))
+        }
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Numeric hooks
 // ---------------------------------------------------------------------------
@@ -138,6 +232,40 @@ fn num_frac(a: &[f64]) -> Result<f64, String> {
     match a {
         [_, d] if *d == 0.0 => Err("Division by zero".into()),
         [n, d] => Ok(n / d),
+        _ => unreachable!("arity is checked by `call`"),
+    }
+}
+
+fn num_gcd(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [x, y] => {
+            let (ix, iy) = match (number::to_int_exact(*x), number::to_int_exact(*y)) {
+                (Some(ix), Some(iy)) => (ix, iy),
+                _ => return Err("gcd() requires integer arguments".into()),
+            };
+            Ok(ix.gcd(&iy) as f64)
+        }
+        _ => unreachable!("arity checked by call"),
+    }
+}
+
+fn num_lcm(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [x, y] => {
+            let (ix, iy) = match (number::to_int_exact(*x), number::to_int_exact(*y)) {
+                (Some(ix), Some(iy)) => (ix, iy),
+                _ => return Err("lcm() requires integer arguments".into()),
+            };
+            Ok(ix.lcm(&iy) as f64)
+        }
+        _ => unreachable!("arity checked by call"),
+    }
+}
+
+fn num_mod(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [_, m] if *m == 0.0 => Err("Modulo by zero".into()),
+        [x, m] => Ok(x.rem_euclid(*m)),
         _ => unreachable!("arity is checked by `call`"),
     }
 }
@@ -211,21 +339,41 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("log", &["x"], "Base-10 logarithm", Eval::F1(f64::log10))
         .exact(zero_at_one)
         .complex(|a| a[0].log(10.0)),
+    FunctionDef::new("log10", &["x"], "Base-10 logarithm", Eval::F1(f64::log10))
+        .exact(zero_at_one)
+        .complex(|a| a[0].log(10.0)),
+    FunctionDef::new("log2", &["x"], "Base-2 logarithm", Eval::F1(f64::log2))
+        .exact(zero_at_one)
+        .complex(|a| a[0].log(2.0)),
     // Algebra
     FunctionDef::new("sqrt", &["x"], "Square root", Eval::F1(f64::sqrt))
         .exact(exact_sqrt)
         .complex(|a| a[0].sqrt())
         .typst(TypstForm::Sqrt),
+    FunctionDef::new("cbrt", &["x"], "Cubic root", Eval::F1(f64::cbrt))
+        .exact(exact_cbrt)
+        .complex(|a| a[0].cbrt())
+        .typst(TypstForm::Cbrt),
+    FunctionDef::new(
+        "hypot",
+        &["a", "b"],
+        "Hypotenuse, sqrt(a^2 + b^2)",
+        Eval::F2(f64::hypot),
+    )
+    .exact(exact_hypot)
+    .complex(|a| Complex64::new((a[0].norm_sqr() + a[1].norm_sqr()).sqrt(), 0.0)),
     FunctionDef::new("abs", &["x"], "Absolute value", Eval::F1(f64::abs))
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
         .typst(TypstForm::Abs),
     FunctionDef::new("add", &["x", "y"], "Addition", Eval::F2(|x, y| x + y))
         .exact(exact_add)
-        .complex(|a| a[0] + a[1]),
+        .complex(|a| a[0] + a[1])
+        .typst(TypstForm::Add),
     FunctionDef::new("sub", &["x", "y"], "Subtraction", Eval::F2(|x, y| x - y))
         .exact(exact_sub)
-        .complex(|a| a[0] - a[1]),
+        .complex(|a| a[0] - a[1])
+        .typst(TypstForm::Sub),
     FunctionDef::new(
         "mult",
         &["x", "y"],
@@ -233,11 +381,92 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         Eval::F2(|x, y| x * y),
     )
     .exact(exact_mult)
-    .complex(|a| a[0] * a[1]),
+    .complex(|a| a[0] * a[1])
+    .typst(TypstForm::Mult),
     FunctionDef::new("frac", &["num", "den"], "Fraction", Eval::Checked(num_frac))
         .exact(exact_frac)
         .complex(|a| a[0] / a[1])
         .typst(TypstForm::Frac),
+    // Rounding and Sign
+    FunctionDef::new(
+        "floor",
+        &["x"],
+        "Floor function, greatest integer <= x",
+        Eval::F1(f64::floor),
+    )
+    .exact(exact_floor)
+    .complex(|a| Complex64::new(a[0].re.floor(), a[0].im.floor()))
+    .typst(TypstForm::Floor),
+    FunctionDef::new(
+        "ceil",
+        &["x"],
+        "Ceiling function, smallest integer >= x",
+        Eval::F1(f64::ceil),
+    )
+    .exact(exact_ceil)
+    .complex(|a| Complex64::new(a[0].re.ceil(), a[0].im.ceil()))
+    .typst(TypstForm::Ceil),
+    FunctionDef::new(
+        "round",
+        &["x"],
+        "Round to nearest integer",
+        Eval::F1(f64::round),
+    )
+    .exact(exact_round)
+    .complex(|a| Complex64::new(a[0].re.round(), a[0].im.round())),
+    FunctionDef::new(
+        "trunc",
+        &["x"],
+        "Truncate fractional part (round toward zero)",
+        Eval::F1(f64::trunc),
+    )
+    .exact(exact_trunc)
+    .complex(|a| Complex64::new(a[0].re.trunc(), a[0].im.trunc())),
+    FunctionDef::new(
+        "fract",
+        &["x"],
+        "Fractional part, x - trunc(x)",
+        Eval::F1(f64::fract),
+    )
+    .exact(exact_fract)
+    .complex(|a| Complex64::new(a[0].re.fract(), a[0].im.fract())),
+    FunctionDef::new(
+        "sign",
+        &["x"],
+        "Signum function (-1, 0, or 1)",
+        Eval::F1(|x| if x == 0.0 { 0.0 } else { x.signum() }),
+    )
+    .exact(exact_signum)
+    .complex(|a| {
+        let norm = a[0].norm();
+        if norm == 0.0 {
+            Complex64::zero()
+        } else {
+            a[0] / norm
+        }
+    }),
+    // Number theory and combinatorics
+    FunctionDef::new(
+        "gcd",
+        &["x", "y"],
+        "Greatest common divisor",
+        Eval::Checked(num_gcd),
+    )
+    .exact(exact_gcd),
+    FunctionDef::new(
+        "lcm",
+        &["x", "y"],
+        "Least common multiple",
+        Eval::Checked(num_lcm),
+    )
+    .exact(exact_lcm),
+    FunctionDef::new(
+        "mod",
+        &["x", "m"],
+        "Euclidean remainder, x mod m",
+        Eval::Checked(num_mod),
+    )
+    .exact(exact_mod),
     // Commands
     FunctionDef::new("clear", &[], "Clear the history", Eval::Command),
     FunctionDef::new("delvar", &["name"], "Delete a variable", Eval::Command),

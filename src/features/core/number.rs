@@ -34,6 +34,14 @@ pub fn parse_decimal(s: &str) -> Option<Rational> {
     Some(Rational::new(numer, denom))
 }
 
+pub fn to_int_exact(x: f64) -> Option<i64> {
+    if x.is_finite() && x.fract() == 0.0 && x >= i64::MIN as f64 && x <= i64::MAX as f64 {
+        Some(x as i64)
+    } else {
+        None
+    }
+}
+
 pub fn to_f64(r: &Rational) -> f64 {
     r.to_f64().unwrap_or(f64::NAN)
 }
@@ -166,6 +174,22 @@ pub fn sqrt_exact(r: &Rational) -> Option<Rational> {
     let d = r.denom().sqrt();
     if &(&n * &n) == r.numer() && &(&d * &d) == r.denom() {
         Some(Rational::new(n, d))
+    } else {
+        None
+    }
+}
+
+pub fn cbrt_exact(r: &Rational) -> Option<Rational> {
+    let is_neg = r.is_negative();
+    let num = r.numer().abs();
+    let den = r.denom();
+
+    let n = num.cbrt();
+    let d = den.cbrt();
+
+    if &(&n * &n * &n) == &num && &(&d * &d * &d) == den {
+        let res = Rational::new(n, d.clone());
+        Some(if is_neg { -res } else { res })
     } else {
         None
     }

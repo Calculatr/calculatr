@@ -202,9 +202,25 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [x] `exp`
 - [x] `ln`
 - [x] `log`
+- [X] `log10`
+- [X] `log2`
+- [X] `cbrt`
+- [X] `hypot`
 - [x] `sqrt`
 - [x] `abs`
+- [x] `add`
+- [x] `sub`
+- [x] `mult`
 - [x] `frac`
+- [X] `floor`
+- [X] `ceil`
+- [X] `round`
+- [X] `trunc`
+- [X] `fract`
+- [X] `sign`
+- [X] `gcd`
+- [X] `lcm`
+- [X] `mod`
 
 **Commands**
 - [x] `clear`
@@ -229,25 +245,13 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] `rad` (deg to rad)
 
 **Powers and logarithms**
-- [ ] `log2`
-- [ ] `log10`
 - [ ] `logb` (arbitrary base)
-- [ ] `cbrt`
 - [ ] `root`
-- [ ] `hypot`
 
 **Rounding and sign**
-- [ ] `floor`
-- [ ] `ceil`
-- [ ] `round`
-- [ ] `trunc`
-- [ ] `fract`
-- [ ] `sign`
+- [ ] round_ties_even (toggle)
 
 **Number theory and combinatorics**
-- [ ] `gcd`
-- [ ] `lcm`
-- [ ] `mod`
 - [ ] `fact`
 - [ ] `binom`
 - [ ] `perm`
@@ -290,3 +294,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - [ ] Radian / degree mode
 - [x] Copy to clipboard in Visual mode
 - [ ] Projects (Saveable states) for stored variables / Subfolders -> physics::g so theres a tree with organized variables
+
+## Bugs
+
+- [ ] When in autocomplete e.g. frac(<>, <>) the '<>' wont get removed on quick entering (select a value in history, press enter to quickenter)

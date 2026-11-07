@@ -219,6 +219,27 @@ fn emit_inner(e: &Expr, fmt: NumFmt, out: &mut String) {
 fn emit_call(name: &str, args: &[Expr], fmt: NumFmt, out: &mut String) {
     let form = functions::lookup(name).map_or(TypstForm::Named, |f| f.typst);
     match (form, args) {
+        (TypstForm::Add, [x, y]) => {
+            out.push_str("cstr(");
+            emit(x, fmt, 0, out);
+            out.push_str(" + ");
+            emit(y, fmt, 0, out);
+            out.push(')');
+        }
+        (TypstForm::Sub, [x, y]) => {
+            out.push_str("cstr(");
+            emit(x, fmt, 0, out);
+            out.push_str(" - ");
+            emit(y, fmt, 0, out);
+            out.push(')');
+        }
+        (TypstForm::Mult, [x, y]) => {
+            out.push_str("cstr(");
+            emit(x, fmt, 0, out);
+            out.push_str(" times ");
+            emit(y, fmt, 0, out);
+            out.push(')');
+        }
         (TypstForm::Frac, [num, den]) => {
             out.push_str("cstr(frac(");
             emit(num, fmt, 0, out);
@@ -231,8 +252,23 @@ fn emit_call(name: &str, args: &[Expr], fmt: NumFmt, out: &mut String) {
             emit(x, fmt, 0, out);
             out.push_str("))");
         }
+        (TypstForm::Cbrt, [x]) => {
+            out.push_str("cstr(root(3, ");
+            emit(x, fmt, 0, out);
+            out.push_str("))");
+        }
         (TypstForm::Abs, [x]) => {
             out.push_str("cbr(abs(");
+            emit(x, fmt, 0, out);
+            out.push_str("))");
+        }
+        (TypstForm::Floor, [x]) => {
+            out.push_str("cbr(floor(");
+            emit(x, fmt, 0, out);
+            out.push_str("))");
+        }
+        (TypstForm::Ceil, [x]) => {
+            out.push_str("cbr(ceil(");
             emit(x, fmt, 0, out);
             out.push_str("))");
         }
