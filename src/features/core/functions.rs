@@ -1,7 +1,7 @@
 use super::number::{self, Rational};
 use num_complex::Complex64;
 use num_integer::Integer;
-use num_traits::{Float, Inv, Signed, Zero};
+use num_traits::{Inv, Signed, Zero};
 
 pub type ExactFn = fn(&[Rational]) -> Option<Rational>;
 
@@ -203,6 +203,16 @@ fn exact_gcd(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_lcm(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, y] if x.is_integer() && y.is_integer() => {
+            let l = x.to_integer().lcm(&y.to_integer());
+            Some(Rational::from_integer(l))
+        }
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Numeric hooks
 // ---------------------------------------------------------------------------
@@ -223,6 +233,19 @@ fn num_gcd(a: &[f64]) -> Result<f64, String> {
                 _ => return Err("gcd() requires integer arguments".into()),
             };
             Ok(ix.gcd(&iy) as f64)
+        }
+        _ => unreachable!("arity checked by call"),
+    }
+}
+
+fn num_lcm(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [x, y] => {
+            let (ix, iy) = match (number::to_int_exact(*x), number::to_int_exact(*y)) {
+                (Some(ix), Some(iy)) => (ix, iy),
+                _ => return Err("lcm() requires integer arguments".into()),
+            };
+            Ok(ix.lcm(&iy) as f64)
         }
         _ => unreachable!("arity checked by call"),
     }
@@ -404,7 +427,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         }
     }),
     // Number theory and combinatorics
-    // TODO: lcm, mod
+    // TODO: mod
     FunctionDef::new(
         "gcd",
         &["x", "y"],
@@ -412,6 +435,13 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         Eval::Checked(num_gcd),
     )
     .exact(exact_gcd),
+    FunctionDef::new(
+        "lcm",
+        &["x", "y"],
+        "Least common multiple",
+        Eval::Checked(num_lcm),
+    )
+    .exact(exact_lcm),
     // Commands
     FunctionDef::new("clear", &[], "Clear the history", Eval::Command),
     FunctionDef::new("delvar", &["name"], "Delete a variable", Eval::Command),
