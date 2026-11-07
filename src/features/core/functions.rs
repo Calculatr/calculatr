@@ -216,8 +216,9 @@ fn exact_lcm(a: &[Rational]) -> Option<Rational> {
 fn exact_mod(a: &[Rational]) -> Option<Rational> {
     match a {
         [x, m] if !m.is_zero() => {
-            let q = (x / m).floor();
-            Some(x - &(q * m))
+            let m = m.abs();
+            let q = (x / &m).floor();
+            Some(x - &(q * &m))
         }
         _ => None,
     }
@@ -341,7 +342,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("log10", &["x"], "Base-10 logarithm", Eval::F1(f64::log10))
         .exact(zero_at_one)
         .complex(|a| a[0].log(10.0)),
-    FunctionDef::new("log2", &["x"], "Base-10 logarithm", Eval::F1(f64::log2))
+    FunctionDef::new("log2", &["x"], "Base-2 logarithm", Eval::F1(f64::log2))
         .exact(zero_at_one)
         .complex(|a| a[0].log(2.0)),
     // Algebra
@@ -351,7 +352,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .typst(TypstForm::Sqrt),
     FunctionDef::new("cbrt", &["x"], "Cubic root", Eval::F1(f64::cbrt))
         .exact(exact_cbrt)
-        .complex(|a| a[0].sqrt())
+        .complex(|a| a[0].cbrt())
         .typst(TypstForm::Cbrt),
     FunctionDef::new(
         "hypot",
@@ -360,7 +361,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         Eval::F2(f64::hypot),
     )
     .exact(exact_hypot)
-    .complex(|a| (a[0] * a[0] + a[1] * a[1]).sqrt()),
+    .complex(|a| Complex64::new((a[0].norm_sqr() + a[1].norm_sqr()).sqrt(), 0.0)),
     FunctionDef::new("abs", &["x"], "Absolute value", Eval::F1(f64::abs))
         .exact(exact_abs)
         .complex(|a| Complex64::new(a[0].norm(), 0.0))
@@ -433,7 +434,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         "sign",
         &["x"],
         "Signum function (-1, 0, or 1)",
-        Eval::F1(f64::signum),
+        Eval::F1(|x| if x == 0.0 { 0.0 } else { x.signum() }),
     )
     .exact(exact_signum)
     .complex(|a| {
@@ -445,7 +446,6 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         }
     }),
     // Number theory and combinatorics
-    // TODO: mod
     FunctionDef::new(
         "gcd",
         &["x", "y"],
