@@ -213,6 +213,16 @@ fn exact_lcm(a: &[Rational]) -> Option<Rational> {
     }
 }
 
+fn exact_mod(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [x, m] if !m.is_zero() => {
+            let q = (x / m).floor();
+            Some(x - &(q * m))
+        }
+        _ => None,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Numeric hooks
 // ---------------------------------------------------------------------------
@@ -248,6 +258,14 @@ fn num_lcm(a: &[f64]) -> Result<f64, String> {
             Ok(ix.lcm(&iy) as f64)
         }
         _ => unreachable!("arity checked by call"),
+    }
+}
+
+fn num_mod(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [_, m] if *m == 0.0 => Err("Modulo by zero".into()),
+        [x, m] => Ok(x.rem_euclid(*m)),
+        _ => unreachable!("arity is checked by `call`"),
     }
 }
 
@@ -442,6 +460,13 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         Eval::Checked(num_lcm),
     )
     .exact(exact_lcm),
+    FunctionDef::new(
+        "mod",
+        &["x", "m"],
+        "Euclidean remainder, x mod m",
+        Eval::Checked(num_mod),
+    )
+    .exact(exact_mod),
     // Commands
     FunctionDef::new("clear", &[], "Clear the history", Eval::Command),
     FunctionDef::new("delvar", &["name"], "Delete a variable", Eval::Command),
