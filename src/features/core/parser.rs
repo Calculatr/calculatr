@@ -1,5 +1,7 @@
 use super::ast::{Expr, MathConstant, Stmt};
+use super::names::SEPARATOR;
 use super::number::parse_decimal;
+use super::units::UNIT_SEPARATOR;
 
 pub struct Parser<'a> {
     chars: &'a [u8],
@@ -159,6 +161,11 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         let text = std::str::from_utf8(&self.chars[start..self.pos]).unwrap_or_default();
+        if self.peek() == Some(UNIT_SEPARATOR as u8) {
+            return Err(format!(
+                "Units are not supported yet ('{text}{UNIT_SEPARATOR}…' is reserved for them)"
+            ));
+        }
         parse_decimal(text)
             .map(Expr::Num)
             .ok_or_else(|| format!("Could not parse number: {text}"))
@@ -189,10 +196,21 @@ impl<'a> Parser<'a> {
             return None;
         }
         let start = self.pos;
-        while self
-            .peek()
-            .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
+        loop {
+            while self
+                .peek()
+                .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                self.pos += 1;
+            }
+            let continues = self.peek() == Some(SEPARATOR as u8)
+                && self
+                    .chars
+                    .get(self.pos + 1)
+                    .is_some_and(|b| b.is_ascii_alphabetic());
+            if !continues {
+                break;
+            }
             self.pos += 1;
         }
         Some(String::from_utf8_lossy(&self.chars[start..self.pos]).into_owned())
@@ -317,6 +335,30 @@ mod tests {
         assert!(parse_stmt("pi := 3").is_err());
         assert!(parse_stmt("sin(<>)").unwrap_err().contains("placeholder"));
         assert!(parse_stmt("1.2.3").is_err());
+    }
+
+    #[test]
+    fn dotted_names_address_sections() {
+        assert_eq!(
+            parse_stmt("physics.a1.g := 9.81").unwrap(),
+            Stmt::Assign(
+                "physics.a1.g".into(),
+                Expr::Num(parse_decimal("9.81").unwrap())
+            )
+        );
+        assert_eq!(
+            expr("2physics.g"),
+            Expr::num(2).bin(Expr::Mul, var("physics.g"))
+        );
+        assert!(parse_stmt("physics.").is_err());
+        assert!(parse_stmt("physics.1").is_err());
+        assert_eq!(expr("x.y+1").children()[0], &var("x.y"));
+    }
+
+    #[test]
+    fn unit_suffix_is_reserved() {
+        assert!(parse_stmt("5_N").unwrap_err().contains("Units"));
+        assert_eq!(expr("v_0"), var("v_0"));
     }
 
     #[test]

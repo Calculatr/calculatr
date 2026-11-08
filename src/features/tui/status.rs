@@ -96,7 +96,7 @@ fn hints(app: &App) -> String {
             "Press the new key · Esc cancels".to_string()
         }
         (Tab::Settings, _) => {
-            "j/k move · Enter/Space change · r reset hotkey · Esc back".to_string()
+            "j/k move · Enter/Space/←→ change · r reset hotkey · Esc back".to_string()
         }
         (Tab::Calculator, Focus::Input) => format!(
             "{} mode · {} variables · {} typst · {} settings · Tab complete · Esc normal · {} quit",
@@ -114,7 +114,7 @@ fn hints(app: &App) -> String {
             "type to filter · Enter/Esc done".to_string()
         }
         (Tab::Calculator, Focus::Variables) => {
-            "j/k move · / filter · v select · Enter insert · dd delete · h history · Esc back"
+            "j/k move · Enter insert/fold · h/l fold · / filter · v select · dd delete · Esc back"
                 .to_string()
         }
     }

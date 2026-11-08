@@ -2,10 +2,11 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
 use super::algebra;
-use super::answer::{Answer, Evaluation};
+use super::answer::{Answer, ConfigRequest, Evaluation};
 use super::ast::{ANS, Expr, MathConstant, Stmt};
 use super::functions;
-use super::number::NumFmt;
+use super::names;
+use super::number::{self, NumFmt};
 use super::parser::parse_stmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -60,18 +61,36 @@ impl Environment {
         self.vars.keys()
     }
 
-    pub fn sorted_names(&self, filter: &str) -> Vec<String> {
-        let mut names: Vec<String> = self
-            .vars
-            .keys()
-            .filter(|n| n.contains(filter))
-            .cloned()
-            .collect();
+    pub fn sorted_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.vars.keys().cloned().collect();
         names.sort();
         names
     }
 
+    pub fn is_section(&self, path: &str) -> bool {
+        self.vars.keys().any(|n| names::is_within(n, path))
+    }
+
+    pub fn section_members(&self, section: &str) -> Vec<String> {
+        let mut members: Vec<String> = self
+            .vars
+            .keys()
+            .filter(|n| names::is_within(n, section))
+            .cloned()
+            .collect();
+        members.sort();
+        members
+    }
+
     pub fn check_assign(&self, name: &str, expr: &Expr) -> Result<(), String> {
+        if self.is_section(name) {
+            return Err(format!(
+                "'{name}' is a section; delete it with delvar({name}, -r) or choose another name"
+            ));
+        }
+        if let Some(var) = names::ancestors(name).find(|a| self.vars.contains_key(*a)) {
+            return Err(format!("'{var}' is a variable and can't contain '{name}'"));
+        }
         if MathConstant::from_name(name).is_some() || name == ANS {
             return Err(format!("'{name}' is a constant and read-only"));
         }
@@ -111,6 +130,14 @@ impl Environment {
             }
         }
         true
+    }
+
+    pub fn remove_section(&mut self, section: &str) -> usize {
+        let members = self.section_members(section);
+        for name in &members {
+            self.remove_var(name);
+        }
+        members.len()
     }
 
     fn depends_on(&self, expr: &Expr, target: &str, visited: &mut HashSet<String>) -> bool {
@@ -281,17 +308,89 @@ fn run_command(env: &mut Environment, name: &str, args: &[Expr]) -> Evaluation {
     let answer = match (name, args) {
         ("clear", []) => return Evaluation::ClearHistory,
         ("clear", _) => Answer::Error("clear() expects no arguments".into()),
-        ("delvar", [Expr::Variable(var)]) => {
-            if env.remove_var(var) {
-                Answer::Message(format!("Deleted variable '{var}'"))
-            } else {
-                Answer::Error(format!("Unknown variable '{var}'"))
-            }
+        ("delvar", _) => delete_variable(env, args),
+        ("settings", []) => return Evaluation::Configure(ConfigRequest::Show),
+        ("settings", _) => Answer::Error("settings() expects no arguments".into()),
+        ("set", [key]) => match command_word(key) {
+            Some(key) => return Evaluation::Configure(ConfigRequest::Cycle(key)),
+            None => Answer::Error("set() expects a setting name, e.g. set(typst)".into()),
+        },
+        ("set", [key, value]) => match (command_word(key), command_word(value)) {
+            (Some(k), Some(v)) => return Evaluation::Configure(ConfigRequest::Set(k, v)),
+            _ => Answer::Error(
+                "set() expects a setting name and a value, e.g. set(notation, si)".into(),
+            ),
+        },
+        ("set", _) => {
+            Answer::Error("Usage: set(setting) to toggle, set(setting, value) to set".into())
         }
-        ("delvar", _) => Answer::Error("delvar() expects a variable name".into()),
+        (shortcut, []) if SETTING_SHORTCUTS.contains(&shortcut) => {
+            return Evaluation::Configure(ConfigRequest::Cycle(shortcut.to_string()));
+        }
+        (shortcut, [value]) if SETTING_SHORTCUTS.contains(&shortcut) => match command_word(value) {
+            Some(v) => {
+                return Evaluation::Configure(ConfigRequest::Set(shortcut.to_string(), v));
+            }
+            None => Answer::Error(format!("{shortcut}() expects a single word or number")),
+        },
+        (shortcut, _) if SETTING_SHORTCUTS.contains(&shortcut) => {
+            Answer::Error(format!("{shortcut}() expects at most one argument"))
+        }
         _ => Answer::Error(format!("Unknown command: {name}")),
     };
     Evaluation::Answer(answer)
+}
+
+const SETTING_SHORTCUTS: &[&str] = &["notation", "decimals", "exponent", "extprefixes"];
+
+fn command_word(e: &Expr) -> Option<String> {
+    match e {
+        Expr::Variable(n) => Some(n.clone()),
+        Expr::Constant(c) => Some(c.name().to_string()),
+        Expr::Num(r) if number::is_integer(r) => Some(r.numer().to_string()),
+        _ => None,
+    }
+}
+
+fn is_recursive_flag(e: &Expr) -> bool {
+    matches!(e, Expr::Neg(inner)
+        if matches!(&**inner, Expr::Variable(f) if matches!(f.as_str(), "r" | "R" | "rf" | "fr")))
+}
+
+fn plural(n: usize, word: &str) -> String {
+    format!("{n} {word}{}", if n == 1 { "" } else { "s" })
+}
+
+fn delete_variable(env: &mut Environment, args: &[Expr]) -> Answer {
+    const USAGE: &str =
+        "Usage: delvar(name) deletes a variable, delvar(section, -r) a whole section";
+    let (target, recursive) = match args {
+        [Expr::Variable(t)] => (t, false),
+        [Expr::Variable(t), flag] if is_recursive_flag(flag) => (t, true),
+        [Expr::Variable(_), _] => {
+            return Answer::Error("Unknown flag; use -r to delete a section recursively".into());
+        }
+        _ => return Answer::Error(USAGE.into()),
+    };
+
+    if env.remove_var(target) {
+        return Answer::Message(format!("Deleted variable '{target}'"));
+    }
+    let members = env.section_members(target).len();
+    if members == 0 {
+        return Answer::Error(format!("Unknown variable or section '{target}'"));
+    }
+    if !recursive {
+        return Answer::Error(format!(
+            "'{target}' is a section with {}; use delvar({target}, -r) to delete it recursively",
+            plural(members, "variable")
+        ));
+    }
+    let deleted = env.remove_section(target);
+    Answer::Message(format!(
+        "Deleted section '{target}' ({})",
+        plural(deleted, "variable")
+    ))
 }
 
 #[cfg(test)]
@@ -302,6 +401,7 @@ mod tests {
         match evaluate(env, input, mode) {
             Evaluation::Answer(a) => a.text(),
             Evaluation::ClearHistory => "<clear>".into(),
+            Evaluation::Configure(req) => format!("<config {req:?}>"),
         }
     }
 
@@ -312,57 +412,54 @@ mod tests {
         let mut env = Environment::new();
         assert_eq!(run(&mut env, "x := 0.25", Decimal), "x := 0.25");
         assert_eq!(run(&mut env, "x := 0.25", Symbolic), "x := 1/4");
-        assert_eq!(run(&mut env, "1/4", Decimal), "= 0.25");
-        assert_eq!(run(&mut env, "1/4", Symbolic), "= 1/4");
-        assert_eq!(run(&mut env, "x + 0.5", Symbolic), "= 3/4");
-        assert_eq!(run(&mut env, "x + 0.5", Decimal), "= 0.75");
+        assert_eq!(run(&mut env, "1/4", Decimal), "0.25");
+        assert_eq!(run(&mut env, "1/4", Symbolic), "1/4");
+        assert_eq!(run(&mut env, "x + 0.5", Symbolic), "3/4");
+        assert_eq!(run(&mut env, "x + 0.5", Decimal), "0.75");
     }
 
     #[test]
     fn decimal_mode_has_no_binary_noise() {
         let mut env = Environment::new();
-        assert_eq!(run(&mut env, "0.1 + 0.2", Decimal), "= 0.3");
-        assert_eq!(run(&mut env, "1/3", Decimal), "= 0.3333333333333");
-        assert_eq!(run(&mut env, "pi/2", Decimal), "= 1.570796326795");
-        assert_eq!(run(&mut env, "sqrt(2)", Decimal), "= 1.414213562373");
+        assert_eq!(run(&mut env, "0.1 + 0.2", Decimal), "0.3");
+        assert_eq!(run(&mut env, "1/3", Decimal), "0.3333333333333");
+        assert_eq!(run(&mut env, "pi/2", Decimal), "1.570796326795");
+        assert_eq!(run(&mut env, "sqrt(2)", Decimal), "1.414213562373");
         assert_eq!(
             run(&mut env, "2^100", Decimal),
-            "= 1267650600228229401496703205376"
+            "1267650600228229401496703205376"
         );
     }
 
     #[test]
     fn symbolic_mode_keeps_symbols() {
         let mut env = Environment::new();
-        assert_eq!(run(&mut env, "2x + 3x", Symbolic), "= 5*x");
-        assert_eq!(
-            run(&mut env, "sqrt(16) + sqrt(2)", Symbolic),
-            "= sqrt(2) + 4"
-        );
-        assert_eq!(run(&mut env, "2 pi", Symbolic), "= 2*pi");
+        assert_eq!(run(&mut env, "2x + 3x", Symbolic), "5*x");
+        assert_eq!(run(&mut env, "sqrt(16) + sqrt(2)", Symbolic), "sqrt(2) + 4");
+        assert_eq!(run(&mut env, "2 pi", Symbolic), "2*pi");
     }
 
     #[test]
     fn equations_can_be_stored_in_variables() {
         let mut env = Environment::new();
         assert_eq!(run(&mut env, "x := 3y=2", Symbolic), "x := 3*y = 2");
-        assert_eq!(run(&mut env, "x", Symbolic), "= 3*y = 2");
+        assert_eq!(run(&mut env, "x", Symbolic), "3*y = 2");
         assert_eq!(
             run(&mut env, "x := 0.5y = 1/4", Decimal),
             "x := 0.5*y = 0.25"
         );
         assert!(run(&mut env, "x + 1", Symbolic).contains("holds an equation"));
-        assert_eq!(run(&mut env, "z = 0.25", Symbolic), "= z = 1/4");
+        assert_eq!(run(&mut env, "z = 0.25", Symbolic), "z = 1/4");
     }
 
     #[test]
     fn unknown_variables() {
         let mut env = Environment::new();
         assert!(run(&mut env, "y + 1", Decimal).contains("Unknown variable 'y'"));
-        assert_eq!(run(&mut env, "y + 1", Symbolic), "= y + 1");
+        assert_eq!(run(&mut env, "y + 1", Symbolic), "y + 1");
         assert_eq!(run(&mut env, "b := a + 1", Decimal), "b := a + 1");
         run(&mut env, "a := 2", Decimal);
-        assert_eq!(run(&mut env, "b", Decimal), "= 3");
+        assert_eq!(run(&mut env, "b", Decimal), "3");
     }
 
     #[test]
@@ -380,12 +477,76 @@ mod tests {
         let mut env = Environment::new();
         run(&mut env, "a := 2", Decimal);
         run(&mut env, "b := a + 1", Decimal);
-        assert_eq!(
-            run(&mut env, "delvar(a)", Decimal),
-            "= Deleted variable 'a'"
-        );
-        assert_eq!(run(&mut env, "b", Decimal), "= 3");
+        assert_eq!(run(&mut env, "delvar(a)", Decimal), "Deleted variable 'a'");
+        assert_eq!(run(&mut env, "b", Decimal), "3");
         assert!(run(&mut env, "delvar(a)", Decimal).contains("Unknown variable"));
+    }
+
+    #[test]
+    fn sections_behave_like_directories() {
+        let mut env = Environment::new();
+        assert_eq!(
+            run(&mut env, "physics.g := 9.81", Decimal),
+            "physics.g := 9.81"
+        );
+        run(&mut env, "physics.a1.a.v := 2", Decimal);
+        run(&mut env, "math.x := 3", Decimal);
+        assert_eq!(run(&mut env, "physics.g * math.x", Decimal), "29.43");
+        assert!(env.is_section("physics"));
+        assert!(env.is_section("physics.a1"));
+        assert!(!env.is_section("physics.g"));
+        assert!(run(&mut env, "physics := 1", Decimal).contains("is a section"));
+        assert!(run(&mut env, "math.x.y := 1", Decimal).contains("is a variable"));
+    }
+
+    #[test]
+    fn delvar_needs_a_flag_for_sections() {
+        let mut env = Environment::new();
+        run(&mut env, "physics.g := 9.81", Decimal);
+        run(&mut env, "physics.a1.v := 2", Decimal);
+        run(&mut env, "w := physics.g * 2", Decimal);
+        let refused = run(&mut env, "delvar(physics)", Decimal);
+        assert!(refused.contains("delvar(physics, -r)"), "{refused}");
+        assert!(run(&mut env, "delvar(physics, -x)", Decimal).contains("Unknown flag"));
+        assert_eq!(
+            run(&mut env, "delvar(physics.a1, -r)", Decimal),
+            "Deleted section 'physics.a1' (1 variable)"
+        );
+        assert_eq!(
+            run(&mut env, "delvar(physics, -rf)", Decimal),
+            "Deleted section 'physics' (1 variable)"
+        );
+        assert!(!env.is_section("physics"));
+        assert_eq!(
+            run(&mut env, "w", Decimal),
+            "19.62",
+            "dependents keep their value"
+        );
+        assert!(run(&mut env, "delvar(physics)", Decimal).contains("Unknown"));
+    }
+
+    #[test]
+    fn settings_commands_are_forwarded() {
+        let mut env = Environment::new();
+        assert_eq!(run(&mut env, "settings()", Decimal), "<config Show>");
+        assert_eq!(
+            run(&mut env, "set(notation, e)", Decimal),
+            "<config Set(\"notation\", \"e\")>"
+        );
+        assert_eq!(
+            run(&mut env, "decimals(4)", Decimal),
+            "<config Set(\"decimals\", \"4\")>"
+        );
+        assert_eq!(
+            run(&mut env, "set(typst)", Decimal),
+            "<config Cycle(\"typst\")>"
+        );
+        assert_eq!(
+            run(&mut env, "notation()", Decimal),
+            "<config Cycle(\"notation\")>"
+        );
+        assert!(run(&mut env, "set(1/2, on)", Decimal).contains("Error"));
+        assert!(run(&mut env, "notation(1, 2)", Decimal).contains("at most one"));
     }
 
     #[test]
@@ -395,6 +556,6 @@ mod tests {
         assert!(run(&mut env, "1/0", Decimal).contains("Division by zero"));
         assert!(run(&mut env, "sqrt(-1)", Decimal).contains("undefined"));
         assert!(run(&mut env, "1 +", Decimal).contains("Error"));
-        assert_eq!(run(&mut env, "", Decimal), "= 0");
+        assert_eq!(run(&mut env, "", Decimal), "0");
     }
 }

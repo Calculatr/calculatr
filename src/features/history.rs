@@ -2,7 +2,7 @@ use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 
-use super::core::Answer;
+use super::core::{Answer, NumberFormat};
 
 pub const MAX_SAVED_ENTRIES: usize = 500;
 
@@ -31,6 +31,14 @@ pub fn locate(line: usize) -> (usize, LineKind) {
 }
 
 pub fn insert_text(history: &[HistoryEntry], line: usize) -> Option<String> {
+    insert_text_with(history, line, &NumberFormat::default())
+}
+
+pub fn insert_text_with(
+    history: &[HistoryEntry],
+    line: usize,
+    numbers: &NumberFormat,
+) -> Option<String> {
     let (entry, kind) = locate(line);
     let entry = history.get(entry)?;
     match kind {
@@ -38,7 +46,7 @@ pub fn insert_text(history: &[HistoryEntry], line: usize) -> Option<String> {
             let t = entry.input.trim();
             (!t.is_empty()).then(|| t.to_string())
         }
-        LineKind::Result => entry.answer.insert_text(),
+        LineKind::Result => entry.answer.insert_text_with(numbers),
     }
 }
 

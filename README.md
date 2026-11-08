@@ -15,6 +15,10 @@ Written in Rust with [ratatui](https://ratatui.rs). Formulas can be rendered as 
   substitutes defined variables before simplifying.
 - **Variables and equations.** `x := 0.25` assigns. A variable may also hold an equation,
   for example `y := 3x = 2`.
+- **Sections.** Dotted names organise variables in a tree of any depth: `physics.g := 9.81`,
+  `physics.mech.v0 := 3`. The variables drawer shows them as foldable folders.
+- **Number formatting.** Round to a fixed number of decimal places and choose between
+  `1500`, `1.5*10^3`, `1.5e3` and `1.5k`, with scientific or engineering exponents.
 - **Typeset output.** Inputs and results are rendered as math with Typst, using the same colours
   as the terminal text, including the fade of older history lines. It can be switched off
   independently of Decimal / Symbolic mode.
@@ -27,7 +31,8 @@ Written in Rust with [ratatui](https://ratatui.rs). Formulas can be rendered as 
 - **Vim motions everywhere.** The input line has Normal, Insert and Visual mode. The history and
   the variables drawer are navigable with the same keys.
 - **System clipboard.** Yanks and deletes are copied to the system clipboard, and `p` pastes from it.
-- **Configurable.** A Settings tab manages the options and lets you rebind every hotkey.
+- **Configurable.** A Settings tab manages the options and lets you rebind every hotkey. Every
+  option can also be changed with a command such as `notation(si)` or `set(typst, off)`.
 - **Persistent.** History, variables and mode survive restarts.
 
 ## Requirements
@@ -63,7 +68,53 @@ Type an expression and press `Enter`. An empty `Enter` repeats the previous inpu
 ```
 
 Precision rules in Decimal mode: a result is shown exactly if its expansion has at most 15
-decimal places, otherwise with 13 significant digits.
+decimal places, otherwise with 13 significant digits. The number format settings below build on
+that value.
+
+### Number format
+
+Applies to Decimal mode; Symbolic mode always stays exact. The whole history is re-rendered
+when a setting changes.
+
+| Setting              | Values                         | Example for 15 000.5            |
+|----------------------|--------------------------------|---------------------------------|
+| Decimal places       | `auto`, `0` … `15`             | `decimals(0)` → `15001`         |
+| Notation             | `standard` `power` `e` `si`    | `15000.5` `1.50005*10^4` `1.50005e4` `15.0005k` |
+| Exponent step        | `sci` (one digit before the point) or `eng` (multiples of 3) | `e` + `eng` → `15.0005e3` |
+| Extended SI prefixes | `on` / `off`                   | adds `c` `d` `da` `h`: `0.05` → `5c` |
+
+Rounding is exact (half away from zero) and trailing zeros are omitted. With decimal places
+set, they apply to the mantissa: `decimals(2)` + `notation(si)` shows `15k`. SI prefixes always
+use steps of three (`q` … `Q`, micro is `µ`); beyond them the output falls back to `e`.
+When a result is inserted into the input line it is written as `*10^n`, so it can be read back.
+
+### Commands
+
+| Command                          | Effect                                                    |
+|----------------------------------|-----------------------------------------------------------|
+| `clear()`                        | Clear the history                                         |
+| `delvar(x)`                      | Delete a variable                                         |
+| `delvar(physics, -r)`            | Delete a section and everything in it (`-rf` works too)   |
+| `settings()`                     | List all settings                                         |
+| `set(name, value)`               | Change a setting, e.g. `set(typst, off)`, `set(decimals, 4)` |
+| `set(name)`                      | Flip a switch / advance to the next choice                |
+| `notation(standard\|power\|e\|si)` | Notation; `notation(sci)` / `notation(eng)` pick power of ten with that exponent step |
+| `decimals(auto\|n)`               | Decimal places                                            |
+| `exponent(sci\|eng)`              | Exponent step                                             |
+| `extprefixes(on\|off)`            | Extended SI prefixes                                      |
+
+Setting names for `set`: `typst`, `autoclose`, `clipboard`, `complex`, `decimals`, `notation`,
+`exponent`, `extprefixes` (aliases like `precision` or `format` are accepted). Without an
+argument, `notation()` and friends cycle to the next value.
+
+### Sections
+
+`physics.g := 9.81` creates the variable `g` in the section `physics`; sections can be nested to
+any depth (`physics.a1.a.v`). A name is either a variable or a section, like a file and a
+directory. Deleting a section needs the recursive flag: `delvar(physics, -r)`. Completion works
+on the full path, so `phy` + `Tab` completes to `physics.`.
+
+The syntax `5_N` is reserved for physical units, which are planned but not implemented yet.
 
 ### Hotkeys (defaults)
 
@@ -103,6 +154,17 @@ Ctrl/Alt combination.
 | `Enter`             | Insert the selection into the input line                 |
 | `/`                 | Filter (variables)                                       |
 | `h` `l`             | Switch between history and variables                     |
+
+In the variables drawer, sections show the number of variables they contain, for example
+`▾ physics (3)`.
+
+| Key (variables)       | Action                                                     |
+|-----------------------|------------------------------------------------------------|
+| `Enter` `Space`       | Fold or unfold the section under the cursor                |
+| `l` `→`               | Unfold a section, or step into an unfolded one             |
+| `h` `←`               | Fold a section, or jump to the parent section; at the top level, go to the history |
+| `dd` `x` `Del`        | Delete; on a section, deletes the section with everything in it |
+| `v` … `Enter`         | Insert the selected variables (a single selected section inserts `physics.`) |
 | `Esc`               | Back to the input line                                   |
 
 Counts work as in Vim (`5j`). Several selected history lines are inserted comma-separated, which
@@ -115,9 +177,16 @@ is handy as function arguments.
 | Typst rendering        | on      |
 | Auto-close brackets    | on      |
 | System clipboard       | on      |
+| Complex numbers        | off     |
+| Decimal places         | auto    |
+| Notation               | standard |
+| Exponent step          | sci     |
+| Extended SI prefixes   | off     |
 | Hotkeys                | see above |
 
-Navigate with `j` / `k`, change with `Enter` or `Space`, reset a hotkey with `r`.
+Navigate with `j` / `k`, change with `Enter`, `Space` or `←` / `→`, reset a hotkey with `r`.
+Settings without effect in the current notation are dimmed. The bottom line shows the matching
+command for the selected setting.
 
 ### Clipboard notes
 
@@ -143,10 +212,13 @@ src/
   main.rs                 entry point
   app/                    event loop, key routing, clipboard, settings tab logic
   features/
-    core/                 numbers, parser, algebra, formatting, function registry, evaluator
+    core/                 numbers, parser, algebra, formatting, function registry, evaluator,
+                          number notation (notation.rs), section paths (names.rs),
+                          unit groundwork (units.rs)
     editor/               input buffer, completion, Vim editor, list navigation
     settings/             settings model and hotkey map
     history.rs            history model
+    variables.rs          tree view of sectioned variables
     persistence/          settings.json / state.json
     tui/                  theme, highlighter, Typst rendering, views
 ```
@@ -224,7 +296,8 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 
 **Commands**
 - [x] `clear`
-- [x] `delvar`
+- [x] `delvar` (recursive for sections with `-r`)
+- [x] `settings`, `set`, `notation`, `decimals`, `exponent`, `extprefixes`
 
 ### Missing
 
@@ -282,7 +355,7 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 **Other**
 - [ ] complex numbers
 - [ ] vectors and matrices
-- [ ] units and conversions
+- [ ] units and conversions (groundwork in `core/units.rs`, syntax `5_N` reserved)
 - [ ] `clearvars` (delete all variables)
 - [ ] `vars` / `help` (list functions)
 
@@ -290,10 +363,12 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 
 - [x] Drop the `=` on result lines
 - [ ] Rename variables
-- [ ] Number of decimal places and rounding mode as settings
+- [x] Number of decimal places as a setting
+- [ ] Rounding mode as a setting
 - [ ] Radian / degree mode
 - [x] Copy to clipboard in Visual mode
-- [ ] Projects (Saveable states) for stored variables / Subfolders -> physics::g so theres a tree with organized variables
+- [ ] Projects (Saveable states) for stored variables
+- [x] Sections -> physics.g so there's a tree with organized variables
 
 ## Bugs
 

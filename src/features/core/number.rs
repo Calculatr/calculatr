@@ -54,7 +54,7 @@ pub fn is_integer(r: &Rational) -> bool {
     r.denom().is_one()
 }
 
-fn decimal_digits(r: &Rational) -> Option<u32> {
+pub(crate) fn decimal_digits(r: &Rational) -> Option<u32> {
     let mut d = r.denom().clone();
     let (two, five) = (BigInt::from(2u32), BigInt::from(5u32));
     let (mut twos, mut fives) = (0u32, 0u32);
@@ -69,7 +69,7 @@ fn decimal_digits(r: &Rational) -> Option<u32> {
     d.is_one().then_some(twos.max(fives))
 }
 
-const MAX_EXACT_DIGITS: u32 = 15;
+pub(crate) const MAX_EXACT_DIGITS: u32 = 15;
 
 pub fn to_decimal_string(r: &Rational) -> String {
     if is_integer(r) {

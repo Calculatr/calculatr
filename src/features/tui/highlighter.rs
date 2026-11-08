@@ -1,6 +1,7 @@
 use super::theme::TokenKind;
 use crate::features::core::ast::{ANS, MathConstant};
 use crate::features::core::functions;
+use crate::features::core::names::SEPARATOR;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
@@ -35,7 +36,15 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             ));
         } else if c.is_alphabetic() || c == '_' {
             let start = i;
-            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+            loop {
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                let continues = chars.get(i) == Some(&SEPARATOR)
+                    && chars.get(i + 1).is_some_and(|c| c.is_alphabetic());
+                if !continues {
+                    break;
+                }
                 i += 1;
             }
             let word: String = chars[start..i].iter().collect();
@@ -114,8 +123,20 @@ mod tests {
     }
 
     #[test]
+    fn dotted_names_are_one_token() {
+        assert_eq!(
+            kinds("physics.g*2.5"),
+            vec![
+                ("physics.g".into(), Variable),
+                ("*".into(), Operator),
+                ("2.5".into(), Number),
+            ]
+        );
+    }
+
+    #[test]
     fn tokens_reassemble_to_the_input() {
-        for s in ["", "3y = 2", "frac(1, 2) ^ -x", "αβ + 1"] {
+        for s in ["", "3y = 2", "frac(1, 2) ^ -x", "αβ + 1", "a.b.c + d."] {
             let joined: String = tokenize(s).into_iter().map(|t| t.text).collect();
             assert_eq!(joined, s);
         }

@@ -1,3 +1,4 @@
+use crate::features::core::names::SEPARATOR;
 use crate::features::core::{Candidate, CandidateKind};
 
 use super::buffer::PLACEHOLDER;
@@ -11,11 +12,12 @@ pub struct CompState {
 }
 
 pub fn current_word(chars: &[char], cursor: usize) -> (usize, String) {
+    let is_name_char = |c: char| c.is_ascii_alphanumeric() || c == '_' || c == SEPARATOR;
     let mut start = cursor.min(chars.len());
-    while start > 0 && (chars[start - 1].is_ascii_alphanumeric() || chars[start - 1] == '_') {
+    while start > 0 && is_name_char(chars[start - 1]) {
         start -= 1;
     }
-    while start < cursor && (chars[start].is_ascii_digit() || chars[start] == '_') {
+    while start < cursor && !chars[start].is_ascii_alphabetic() {
         start += 1;
     }
     (start, chars[start..cursor].iter().collect())
@@ -87,6 +89,12 @@ mod tests {
         assert_eq!(current_word(&chars("a_b"), 3), (0, "a_b".to_string()));
         assert_eq!(current_word(&chars("sin(3"), 5), (5, String::new()));
         assert_eq!(current_word(&chars("sqrt"), 2), (0, "sq".to_string()));
+        assert_eq!(
+            current_word(&chars("1+physics.a"), 11),
+            (2, "physics.a".to_string())
+        );
+        assert_eq!(current_word(&chars("2.5"), 3), (3, String::new()));
+        assert_eq!(current_word(&chars("3phy"), 4), (1, "phy".to_string()));
     }
 
     #[test]

@@ -17,6 +17,7 @@ use crate::features::core::parser::parse_stmt;
 use crate::features::core::{Answer, RenderMode, completions};
 use crate::features::editor::Mode;
 use crate::features::history::{self, LineKind};
+use crate::features::variables::NodeKind;
 
 const GUTTER: u16 = 2;
 const MAX_IMG_ROWS: u16 = 8;
@@ -64,7 +65,9 @@ fn typst_source(app: &App, line: usize) -> Option<String> {
         LineKind::Input => parse_stmt(&entry.input)
             .ok()
             .map(|stmt| markup::input_source(&stmt, &app.theme)),
-        LineKind::Result => markup::answer_source(&entry.answer, &app.theme),
+        LineKind::Result => {
+            markup::answer_source(&entry.answer, &app.theme, &app.settings.number_format)
+        }
     }
 }
 
@@ -127,7 +130,7 @@ fn line_pieces(app: &App, line: usize) -> Vec<(String, Color)> {
                 Answer::Error(_) => theme.error,
                 Answer::Message(_) => theme.message,
             };
-            vec![(entry.answer.text(), color)]
+            vec![(entry.answer.text_with(&app.settings.number_format), color)]
         }
     }
 }
@@ -162,11 +165,15 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = app.theme.clone();
     let focused = app.focus == Focus::History;
 
-    let typst_label = if app.settings.typst_rendering {
-        " typst on "
-    } else {
-        " typst off "
-    };
+    let typst_label = format!(
+        " {} · typst {} ",
+        app.settings.number_format.summary(),
+        if app.settings.typst_rendering {
+            "on"
+        } else {
+            "off"
+        }
+    );
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(if focused {
@@ -327,41 +334,65 @@ fn draw_variables(f: &mut Frame, app: &mut App, area: Rect) {
     let theme = &app.theme;
     let focused = app.focus == Focus::Variables;
 
-    let names = app.env.sorted_names(&app.var_filter);
+    let rows = app.var_rows();
     let selection = if focused {
         app.var_nav.highlighted()
     } else {
         None
     };
+    let highlight = Style::default()
+        .fg(theme.highlight_fg)
+        .bg(theme.highlight_bg)
+        .add_modifier(Modifier::BOLD);
 
-    let lines: Vec<Line> = names
+    let lines: Vec<Line> = rows
         .iter()
         .enumerate()
-        .map(|(i, name)| {
-            let value = app
-                .env
-                .get_expr(name)
-                .map(|e| e.to_text(NumFmt::Decimal))
-                .unwrap_or_default();
+        .map(|(i, row)| {
             let is_selected = selection.as_ref().is_some_and(|r| r.contains(&i));
             let is_cursor = focused && app.var_nav.cursor == Some(i);
             let marker = if is_cursor { "> " } else { "  " };
-            let text = format!("{marker}{name} = {value}");
-            let style = if is_selected {
-                Style::default()
-                    .fg(theme.highlight_fg)
-                    .bg(theme.highlight_bg)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(theme.input_text)
+            let indent = "  ".repeat(row.depth);
+            let style = |normal: Style| if is_selected { highlight } else { normal };
+
+            let spans = match row.kind {
+                NodeKind::Section { count, expanded } => vec![
+                    Span::styled(format!("{marker}{indent}"), style(Style::default())),
+                    Span::styled(
+                        format!("{} {}", if expanded { "▾" } else { "▸" }, row.label()),
+                        style(
+                            Style::default()
+                                .fg(theme.title)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ),
+                    Span::styled(format!(" ({count})"), style(Style::default().fg(theme.dim))),
+                ],
+                NodeKind::Variable => {
+                    let value = app
+                        .env
+                        .get_expr(&row.path)
+                        .map(|e| e.to_text(NumFmt::Decimal))
+                        .unwrap_or_default();
+                    vec![
+                        Span::styled(
+                            format!("{marker}{indent}  {}", row.label()),
+                            style(Style::default().fg(theme.input_text)),
+                        ),
+                        Span::styled(
+                            format!(" = {value}"),
+                            style(Style::default().fg(theme.input_text)),
+                        ),
+                    ]
+                }
             };
-            Line::from(Span::styled(text, style))
+            Line::from(spans)
         })
         .collect();
 
     let lines = if lines.is_empty() {
         let hint = if app.var_filter.is_empty() {
-            "  No variables yet - define one with  x := 2"
+            "  No variables yet - define one with  x := 2  or  physics.g := 9.81"
         } else {
             "  No match"
         };
@@ -373,12 +404,13 @@ fn draw_variables(f: &mut Frame, app: &mut App, area: Rect) {
         lines
     };
 
+    let total = app.env.var_names().count();
     let title = if app.var_filter_active {
         format!(" Variables [/{}▏] ", app.var_filter)
     } else if !app.var_filter.is_empty() {
         format!(" Variables (filter: {}) ", app.var_filter)
     } else {
-        " Variables ".to_string()
+        format!(" Variables ({total}) ")
     };
 
     let visible = area.height.saturating_sub(2) as usize;

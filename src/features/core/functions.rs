@@ -469,7 +469,43 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     .exact(exact_mod),
     // Commands
     FunctionDef::new("clear", &[], "Clear the history", Eval::Command),
-    FunctionDef::new("delvar", &["name"], "Delete a variable", Eval::Command),
+    FunctionDef::new(
+        "delvar",
+        &["name"],
+        "Delete a variable; delvar(section, -r) deletes a whole section",
+        Eval::Command,
+    ),
+    FunctionDef::new("settings", &[], "List all settings", Eval::Command),
+    FunctionDef::new(
+        "set",
+        &["setting", "value"],
+        "Change a setting, e.g. set(notation, si); set(typst) toggles",
+        Eval::Command,
+    ),
+    FunctionDef::new(
+        "notation",
+        &["standard|power|e|si"],
+        "Number notation; sci/eng also pick the exponent step",
+        Eval::Command,
+    ),
+    FunctionDef::new(
+        "decimals",
+        &["auto|0..15"],
+        "Round decimal results to n places",
+        Eval::Command,
+    ),
+    FunctionDef::new(
+        "exponent",
+        &["sci|eng"],
+        "Exponent step for power/e notation",
+        Eval::Command,
+    ),
+    FunctionDef::new(
+        "extprefixes",
+        &["on|off"],
+        "Use c, d, da, h with SI prefixes",
+        Eval::Command,
+    ),
 ];
 
 pub fn lookup(name: &str) -> Option<&'static FunctionDef> {

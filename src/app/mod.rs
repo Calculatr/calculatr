@@ -2,6 +2,7 @@ mod clipboard;
 mod input;
 mod settings_view;
 
+use std::collections::HashSet;
 use std::io::{self, Stdout, stdout};
 use std::time::{Duration, Instant};
 
@@ -21,6 +22,7 @@ use crate::features::history::HistoryEntry;
 use crate::features::persistence::{self, SavedState};
 use crate::features::settings::Settings;
 use crate::features::tui::{self, images::ImageCache, theme::Theme};
+use crate::features::variables::{self, TreeRow};
 
 pub use settings_view::{SettingsRow, SettingsView, settings_rows};
 
@@ -57,6 +59,7 @@ pub struct App {
     pub var_nav: ListNav,
     pub var_filter: String,
     pub var_filter_active: bool,
+    pub var_collapsed: HashSet<String>,
     pub settings: Settings,
     pub settings_view: SettingsView,
     pub status: Option<Status>,
@@ -99,6 +102,7 @@ impl App {
             var_nav: ListNav::default(),
             var_filter: String::new(),
             var_filter_active: false,
+            var_collapsed: HashSet::new(),
             settings,
             settings_view: SettingsView::default(),
             status: None,
@@ -110,6 +114,14 @@ impl App {
             persist: false,
             cursor_shape: None,
         }
+    }
+
+    pub fn var_rows(&self) -> Vec<TreeRow> {
+        variables::build(
+            &self.env.sorted_names(),
+            &self.var_collapsed,
+            &self.var_filter,
+        )
     }
 
     pub fn set_status(&mut self, text: impl Into<String>) {
@@ -290,7 +302,7 @@ mod tests {
         assert_eq!(input(&app), "frac(1, 4)");
         assert_eq!(app.editor.buffer.cursor(), input(&app).chars().count());
         app.on_key(key(KeyCode::Enter));
-        assert_eq!(app.history.last().unwrap().answer.text(), "= 0.25");
+        assert_eq!(app.history.last().unwrap().answer.text(), "0.25");
     }
 
     #[test]
@@ -307,12 +319,12 @@ mod tests {
         app.on_key(key(KeyCode::Enter));
         type_text(&mut app, "x");
         app.on_key(key(KeyCode::Enter));
-        assert_eq!(app.history.last().unwrap().answer.text(), "= 0.25");
+        assert_eq!(app.history.last().unwrap().answer.text(), "0.25");
 
         app.on_key(key(KeyCode::F(2)));
         type_text(&mut app, "x");
         app.on_key(key(KeyCode::Enter));
-        assert_eq!(app.history.last().unwrap().answer.text(), "= 1/4");
+        assert_eq!(app.history.last().unwrap().answer.text(), "1/4");
     }
 
     #[test]
@@ -338,6 +350,132 @@ mod tests {
         app.on_key(key(KeyCode::Enter));
         assert_eq!(app.focus, Focus::Input);
         assert_eq!(input(&app), "abc");
+    }
+
+    fn submit(app: &mut App, text: &str) {
+        type_text(app, text);
+        app.on_key(key(KeyCode::Enter));
+    }
+
+    fn last_answer(app: &App) -> String {
+        app.history
+            .last()
+            .unwrap()
+            .answer
+            .text_with(&app.settings.number_format)
+    }
+
+    #[test]
+    fn settings_commands_change_the_number_format() {
+        let mut app = app();
+        submit(&mut app, "x := 12345.678");
+        submit(&mut app, "notation(si)");
+        assert!(last_answer(&app).starts_with("Notation: SI prefix"));
+        submit(&mut app, "decimals(1)");
+        submit(&mut app, "x");
+        assert_eq!(last_answer(&app), "12.3k");
+        let result = app.history.len() - 1;
+        let shown = |app: &App| {
+            app.history[result]
+                .answer
+                .text_with(&app.settings.number_format)
+        };
+        submit(&mut app, "set(notation, sci)");
+        assert_eq!(shown(&app), "1.2*10^4");
+        submit(&mut app, "set(notation, e)");
+        assert_eq!(shown(&app), "1.2e4");
+        submit(&mut app, "exponent(eng)");
+        assert_eq!(shown(&app), "12.3e3");
+        submit(&mut app, "set(precision, auto)");
+        assert_eq!(shown(&app), "12.345678e3");
+        submit(&mut app, "set(nonsense, 1)");
+        assert!(last_answer(&app).contains("Unknown setting"));
+        submit(&mut app, "decimals(99)");
+        assert!(last_answer(&app).contains("Invalid value"));
+        submit(&mut app, "settings()");
+        assert!(last_answer(&app).contains("notation=e"));
+    }
+
+    #[test]
+    fn inserted_results_stay_parseable() {
+        let mut app = app();
+        submit(&mut app, "notation(si)");
+        submit(&mut app, "1500");
+        assert_eq!(last_answer(&app), "1.5k");
+        app.on_key(key(KeyCode::Esc));
+        app.on_key(key(KeyCode::Up));
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(input(&app), "1.5*10^3");
+    }
+
+    #[test]
+    fn settings_tab_steps_choices_with_arrows() {
+        let mut app = app();
+        app.on_key(key(KeyCode::F(4)));
+        let rows = settings_rows();
+        let notation = rows
+            .iter()
+            .position(|r| *r == SettingsRow::Setting(crate::features::settings::Setting::Notation))
+            .unwrap();
+        app.settings_view.nav.cursor = Some(notation);
+        app.on_key(key(KeyCode::Right));
+        assert_eq!(
+            app.settings.number_format.notation,
+            crate::features::core::Notation::Power
+        );
+        app.on_key(key(KeyCode::Left));
+        app.on_key(key(KeyCode::Left));
+        assert_eq!(
+            app.settings.number_format.notation,
+            crate::features::core::Notation::SiPrefix
+        );
+        let text = screen(&mut app, 100, 30);
+        assert!(text.contains("Number format"));
+        assert!(text.contains("SI prefix"));
+    }
+
+    #[test]
+    fn variables_drawer_shows_and_folds_sections() {
+        let mut app = app();
+        submit(&mut app, "physics.g := 9.81");
+        submit(&mut app, "physics.a1.v := 2");
+        submit(&mut app, "x := 1");
+        app.on_key(key(KeyCode::F(3)));
+        let text = screen(&mut app, 100, 20);
+        assert!(text.contains("▾ physics (2)"), "{text}");
+        assert!(text.contains("▾ a1 (1)"));
+
+        assert_eq!(app.var_nav.cursor, Some(0));
+        app.on_key(key(KeyCode::Enter));
+        assert!(screen(&mut app, 100, 20).contains("▸ physics (2)"));
+        assert_eq!(app.var_rows().len(), 2);
+        app.on_key(key(KeyCode::Char('l')));
+        app.on_key(key(KeyCode::Char('l')));
+        assert_eq!(app.var_nav.cursor, Some(1));
+        app.on_key(key(KeyCode::Char('h')));
+        assert!(app.var_collapsed.contains("physics.a1"));
+        app.on_key(key(KeyCode::Char('h')));
+        assert_eq!(app.var_nav.cursor, Some(0));
+        app.on_key(key(KeyCode::Char('l')));
+        app.on_key(key(KeyCode::Char('j')));
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(input(&app), "physics.g");
+    }
+
+    #[test]
+    fn deleting_a_section_in_the_drawer_is_recursive() {
+        let mut app = app();
+        submit(&mut app, "physics.g := 9.81");
+        submit(&mut app, "physics.a1.v := 2");
+        submit(&mut app, "x := 1");
+        app.on_key(key(KeyCode::F(3)));
+        app.on_key(key(KeyCode::Char('d')));
+        app.on_key(key(KeyCode::Char('d')));
+        assert_eq!(app.env.sorted_names(), vec!["x".to_string()]);
+        assert_eq!(
+            app.status.as_ref().unwrap().text,
+            "Deleted 1 section (2 variables)"
+        );
     }
 
     #[test]
