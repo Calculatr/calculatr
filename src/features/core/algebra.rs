@@ -11,7 +11,8 @@ use super::number::{self, Rational, from_f64, pow_int, sqrt_exact};
 
 pub fn simplify(e: &Expr) -> Result<Expr, String> {
     Ok(match e {
-        Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) => e.clone(),
+        Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => e.clone(),
+        Expr::Convert(a, u) => Expr::Convert(Box::new(simplify(a)?), u.clone()),
         Expr::Neg(a) => scale(simplify(a)?, -Rational::one()),
         Expr::Add(a, b) => sum(vec![
             (Rational::one(), simplify(a)?),
@@ -252,6 +253,8 @@ pub fn eval_f64(e: &Expr) -> Result<f64, String> {
             .value()
             .ok_or_else(|| "Result is complex (needs complex evaluation)".to_string()),
         Expr::Variable(name) => Err(format!("Unknown variable '{name}'")),
+        Expr::Unit(u) => Err(format!("'{u}' is a unit, not a number")),
+        Expr::Convert(a, _) => eval_f64(a),
         Expr::Neg(a) => Ok(-eval_f64(a)?),
         Expr::Add(a, b) => {
             let (l, r) = both(a, b)?;
@@ -371,6 +374,8 @@ pub fn eval_c64(e: &Expr) -> Result<Complex64, String> {
             None => Complex64::new(0.0, 1.0),
         }),
         Expr::Variable(name) => Err(format!("Unknown variable '{name}'")),
+        Expr::Unit(u) => Err(format!("'{u}' is a unit, not a number")),
+        Expr::Convert(a, _) => eval_c64(a),
         Expr::Neg(a) => Ok(-eval_c64(a)?),
         Expr::Add(a, b) => {
             let (l, r) = both(a, b)?;

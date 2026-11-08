@@ -8,6 +8,7 @@ pub mod names;
 pub mod notation;
 pub mod number;
 pub mod parser;
+pub mod quantity;
 pub mod units;
 
 pub use answer::{Answer, ConfigRequest, Evaluation};

@@ -17,6 +17,8 @@ Written in Rust with [ratatui](https://ratatui.rs). Formulas can be rendered as 
   for example `y := 3x = 2`.
 - **Sections.** Dotted names organise variables in a tree of any depth: `physics.g := 9.81`,
   `physics.mech.v0 := 3`. The variables drawer shows them as foldable folders.
+- **Units.** `9.81_m/s^2 * 2_kg` gives `19.62_N`; `72_km/h -> m/s` converts. Units are checked
+  (`1_m + 1_s` is an error) and combine with SI prefixes.
 - **Number formatting.** Round to a fixed number of decimal places and choose between
   `1500`, `1.5*10^3`, `1.5e3` and `1.5k`, with scientific or engineering exponents.
 - **Typeset output.** Inputs and results are rendered as math with Typst, using the same colours
@@ -114,7 +116,34 @@ any depth (`physics.a1.a.v`). A name is either a variable or a section, like a f
 directory. Deleting a section needs the recursive flag: `delvar(physics, -r)`. Completion works
 on the full path, so `phy` + `Tab` completes to `physics.`.
 
-The syntax `5_N` is reserved for physical units, which are planned but not implemented yet.
+### Units
+
+A unit follows a number or a closing bracket directly, after `_`:
+
+```text
+> 5_N                     5_N
+> 9.81_m/s^2 * 2_kg       19.62_N
+> 3_km + 200_m            3200_m          (3.2_km with notation(si))
+> (2+3)_kOhm * 2_mA       10_V
+> 72_km/h -> m/s          20_m/s
+> 1_h + 30_min -> min     90_min
+> 1_m + 1_s               Error: Incompatible units: m and s
+```
+
+- The unit chain is written without spaces: `5_m/s` is metres per second, `5_m / s` divides
+  by a variable `s`. A chain stops at the first non-unit, so `2_m*x` is `2_m` times `x`.
+  `_m^2` raises only the unit (`5_m^2` is five square metres); use `(5_m)^2` for 25 m².
+- `value -> unit` converts at the end of an input or assignment (`v := 72_km/h -> m/s`).
+- Without a conversion, a result keeps the unit if only one unit was used (`2_h + 3_h` = `5_h`),
+  otherwise it is shown in a named SI unit (`N`, `J`, `W`, `Pa`, `Hz`, `C`, `V`, `Ohm`, `S`, `F`,
+  `H`, `T`, `Wb`) or in SI base units (`m/s`, `kg*m^2`).
+- Units work in variables and `ans`, in Decimal and Symbolic mode (`x * 2_m` → `(2*x)_m`).
+  `sqrt`, `cbrt` and `abs` accept quantities; other functions need dimensionless arguments.
+- With `notation(si)`, the prefix moves into simple units: `1500_m` is shown as `1.5_km`.
+- Available (`units()` lists them): `m g s A K mol cd N J W Pa Hz C V Ohm S F H T Wb min h d L t
+  bar atm eV Wh Ah cal in ft yd mi lb`. SI prefixes `q` … `Q` work on all but
+  `min h d t atm in ft yd mi lb`; `u` can be typed for `µ`, `l` for `L`, `Ω` for `Ohm`.
+- Temperatures are absolute (kelvin only); °C/°F with their offsets aren't supported.
 
 ### Hotkeys (defaults)
 
@@ -214,7 +243,8 @@ src/
   features/
     core/                 numbers, parser, algebra, formatting, function registry, evaluator,
                           number notation (notation.rs), section paths (names.rs),
-                          unit groundwork (units.rs)
+                          unit registry and parsing (units.rs),
+                          unit arithmetic (quantity.rs)
     editor/               input buffer, completion, Vim editor, list navigation
     settings/             settings model and hotkey map
     history.rs            history model
@@ -355,7 +385,9 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 **Other**
 - [ ] complex numbers
 - [ ] vectors and matrices
-- [ ] units and conversions (groundwork in `core/units.rs`, syntax `5_N` reserved)
+- [x] units and conversions (`5_N`, `-> km/h`)
+- [ ] temperature scales with offsets (°C, °F)
+- [ ] unit completion after `_`
 - [ ] `clearvars` (delete all variables)
 - [ ] `vars` / `help` (list functions)
 

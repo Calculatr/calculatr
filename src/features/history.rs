@@ -77,14 +77,7 @@ mod tests {
 
     fn sample() -> Vec<HistoryEntry> {
         vec![
-            entry(
-                "1+1",
-                Answer::Value {
-                    label: None,
-                    expr: Expr::num(2),
-                    fmt: NumFmt::Decimal,
-                },
-            ),
+            entry("1+1", Answer::value(None, Expr::num(2), NumFmt::Decimal)),
             entry("1/0", Answer::Error("Division by zero".into())),
             entry("delvar(x)", Answer::Message("Deleted".into())),
         ]

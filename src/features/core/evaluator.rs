@@ -8,6 +8,7 @@ use super::functions;
 use super::names;
 use super::number::{self, NumFmt};
 use super::parser::parse_stmt;
+use super::{quantity, units};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderMode {
@@ -195,6 +196,10 @@ impl Environment {
                         "'{name}' holds an equation and can't be used inside an expression"
                     ));
                 }
+                let def = match def {
+                    Expr::Convert(value, _) if !top => value,
+                    _ => def,
+                };
                 stack.push(name.clone());
                 let result = self.substitute_inner(def, stack, top);
                 stack.pop();
@@ -213,6 +218,7 @@ impl Environment {
 struct Resolved {
     exact: Expr,
     shown: Expr,
+    unit: Option<Expr>,
 }
 
 fn resolve(
@@ -221,18 +227,28 @@ fn resolve(
     mode: RenderMode,
     allow_free_variables: bool,
 ) -> Result<Resolved, String> {
-    let substituted = algebra::resolve_infinity(&env.substitute(expr)?)?;
-    let mut exact = algebra::simplify(&substituted)?;
+    let (body, target) = match env.substitute(expr)? {
+        Expr::Convert(value, unit) => (*value, Some(*unit)),
+        other => (other, None),
+    };
+    let body = algebra::resolve_infinity(&body)?;
+    let mut exact = algebra::simplify(&body)?;
     if env.complex {
         exact = algebra::complex_exact(&exact);
     }
+    let (value, unit) = if exact.has_units() || target.is_some() {
+        separate_units(env, &body, &exact, target.as_ref())?
+    } else {
+        (exact.clone(), None)
+    };
     match mode {
         RenderMode::Symbolic => Ok(Resolved {
-            shown: exact.clone(),
             exact,
+            shown: value,
+            unit,
         }),
         RenderMode::Decimal => {
-            let folded = algebra::fold_numeric(&exact, env.complex)?;
+            let folded = algebra::fold_numeric(&value, env.complex)?;
             if !allow_free_variables
                 && !matches!(folded, Expr::Eq(..))
                 && let Some(name) = algebra::first_free_variable(&folded)
@@ -244,9 +260,46 @@ fn resolve(
             Ok(Resolved {
                 exact,
                 shown: folded,
+                unit,
             })
         }
     }
+}
+
+fn separate_units(
+    env: &Environment,
+    body: &Expr,
+    exact: &Expr,
+    target: Option<&Expr>,
+) -> Result<(Expr, Option<Expr>), String> {
+    let Some((scalar, dimension)) = quantity::split(exact)? else {
+        if target.is_some() {
+            return Err("Can't convert: the units can't be separated from the unknowns".into());
+        }
+        return Ok((exact.clone(), None));
+    };
+    let (value, unit) = match target {
+        Some(_) if dimension.is_dimensionless() => {
+            return Err("Nothing to convert: the result has no unit".into());
+        }
+        Some(target) => {
+            let (v, u) = quantity::convert(scalar, dimension, target)?;
+            (v, Some(u))
+        }
+        None if dimension.is_dimensionless() => (algebra::simplify(&scalar)?, None),
+        None => {
+            let mut atoms = Vec::new();
+            body.unit_atoms(&mut atoms);
+            let (v, u) = quantity::present(scalar, dimension, &atoms)?;
+            (v, Some(u))
+        }
+    };
+    let value = if env.complex {
+        algebra::complex_exact(&value)
+    } else {
+        value
+    };
+    Ok((value, unit))
 }
 
 pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluation {
@@ -254,11 +307,7 @@ pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluat
     let fmt = mode.num_fmt();
 
     if text.is_empty() {
-        return Evaluation::Answer(Answer::Value {
-            label: None,
-            expr: Expr::num(0),
-            fmt,
-        });
+        return Evaluation::Answer(Answer::value(None, Expr::num(0), fmt));
     }
 
     let answer = match parse_stmt(text) {
@@ -275,6 +324,7 @@ pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluat
                     label: None,
                     expr: resolved.shown,
                     fmt,
+                    unit: resolved.unit,
                 }
             }
             Err(e) => Answer::Error(e),
@@ -298,6 +348,7 @@ fn assign(env: &mut Environment, name: String, expr: Expr, mode: RenderMode) -> 
                 label: Some(name),
                 expr: resolved.shown,
                 fmt: mode.num_fmt(),
+                unit: resolved.unit,
             }
         }
         Err(e) => Answer::Error(e),
@@ -309,6 +360,8 @@ fn run_command(env: &mut Environment, name: &str, args: &[Expr]) -> Evaluation {
         ("clear", []) => return Evaluation::ClearHistory,
         ("clear", _) => Answer::Error("clear() expects no arguments".into()),
         ("delvar", _) => delete_variable(env, args),
+        ("units", []) => Answer::Message(units::catalogue()),
+        ("units", _) => Answer::Error("units() expects no arguments".into()),
         ("settings", []) => return Evaluation::Configure(ConfigRequest::Show),
         ("settings", _) => Answer::Error("settings() expects no arguments".into()),
         ("set", [key]) => match command_word(key) {
@@ -547,6 +600,68 @@ mod tests {
         );
         assert!(run(&mut env, "set(1/2, on)", Decimal).contains("Error"));
         assert!(run(&mut env, "notation(1, 2)", Decimal).contains("at most one"));
+    }
+
+    #[test]
+    fn unit_arithmetic() {
+        let mut env = Environment::new();
+        assert_eq!(run(&mut env, "5_N", Decimal), "5_N");
+        assert_eq!(run(&mut env, "3_km + 200_m", Decimal), "3200_m");
+        assert_eq!(run(&mut env, "2_h + 3_h", Decimal), "5_h");
+        assert_eq!(run(&mut env, "2_N * 3_m", Decimal), "6_J");
+        assert_eq!(run(&mut env, "(3_m)^2", Decimal), "9_m^2");
+        assert_eq!(run(&mut env, "5_m^2", Decimal), "5_m^2");
+        assert_eq!(run(&mut env, "10_m / 4_m", Decimal), "2.5");
+        assert_eq!(
+            run(&mut env, "100_m / 9.58_s", Decimal),
+            "10.43841336117_m/s"
+        );
+        assert_eq!(run(&mut env, "sqrt(16_m^2)", Decimal), "4_m");
+        assert_eq!(run(&mut env, "1_kWh", Decimal), "1_kWh");
+        assert_eq!(run(&mut env, "12_V * 2_A", Decimal), "24_W");
+        assert_eq!(run(&mut env, "1/(2_s)", Decimal), "0.5_s^-1");
+        assert_eq!(run(&mut env, "1/(2_s) -> Hz", Decimal), "0.5_Hz");
+        assert_eq!(run(&mut env, "-5_m", Decimal), "-5_m");
+    }
+
+    #[test]
+    fn unit_conversions() {
+        let mut env = Environment::new();
+        assert_eq!(run(&mut env, "72_km/h -> m/s", Decimal), "20_m/s");
+        assert_eq!(run(&mut env, "1_kWh -> J", Decimal), "3600000_J");
+        assert_eq!(run(&mut env, "1_h + 30_min -> min", Decimal), "90_min");
+        assert_eq!(run(&mut env, "1_in -> mm", Decimal), "25.4_mm");
+        assert_eq!(run(&mut env, "3_km -> m", Symbolic), "3000_m");
+        assert_eq!(run(&mut env, "1_m -> ft", Symbolic), "(1250/381)_ft");
+        assert!(run(&mut env, "1_m -> s", Decimal).contains("Can't convert m to s"));
+        assert!(run(&mut env, "5 -> m", Decimal).contains("Nothing to convert"));
+    }
+
+    #[test]
+    fn unit_errors() {
+        let mut env = Environment::new();
+        assert!(run(&mut env, "1_m + 1_s", Decimal).contains("Incompatible units: m and s"));
+        assert!(run(&mut env, "1_m + 1", Decimal).contains("Incompatible"));
+        assert!(run(&mut env, "sin(1_m)", Decimal).contains("dimensionless"));
+        assert!(run(&mut env, "2^(1_s)", Decimal).contains("Exponents"));
+        assert!(run(&mut env, "5_xyz", Decimal).contains("Unknown unit"));
+    }
+
+    #[test]
+    fn variables_and_ans_keep_units() {
+        let mut env = Environment::new();
+        assert_eq!(
+            run(&mut env, "physics.g := 9.81_m/s^2", Decimal),
+            "physics.g := 9.81_m/s^2"
+        );
+        run(&mut env, "mass := 2_kg", Decimal);
+        assert_eq!(run(&mut env, "mass * physics.g", Decimal), "19.62_N");
+        assert_eq!(run(&mut env, "ans * 2_m", Decimal), "39.24_J");
+        assert_eq!(run(&mut env, "v := 72_km/h -> m/s", Decimal), "v := 20_m/s");
+        assert_eq!(run(&mut env, "v", Decimal), "20_m/s");
+        assert_eq!(run(&mut env, "v * 10_s", Decimal), "200_m");
+        assert_eq!(run(&mut env, "x * 2_m", Symbolic), "(2*x)_m");
+        assert_eq!(run(&mut env, "x + 1_m", Symbolic), "x + 1_m");
     }
 
     #[test]

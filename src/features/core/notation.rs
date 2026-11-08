@@ -3,7 +3,6 @@ use num_traits::{Signed, Zero};
 use serde::{Deserialize, Serialize};
 
 use super::number::{self, MAX_EXACT_DIGITS, Rational};
-use super::units::Unit;
 
 pub const MAX_DECIMAL_PLACES: u8 = 15;
 
@@ -328,7 +327,6 @@ pub struct FormattedNumber {
     pub negative: bool,
     pub mantissa: String,
     pub scale: Scale,
-    pub unit: Option<&'static Unit>,
 }
 
 impl FormattedNumber {
@@ -337,7 +335,6 @@ impl FormattedNumber {
             negative,
             mantissa,
             scale,
-            unit: None,
         }
     }
 
@@ -370,9 +367,6 @@ impl FormattedNumber {
             Scale::Power(e) => s.push_str(&format!("*10^{e}")),
             Scale::Auto(e) | Scale::E(e) => s.push_str(&format!("e{e}")),
             Scale::Prefix(p) => s.push_str(p.symbol),
-        }
-        if let Some(unit) = self.unit {
-            s.push_str(&unit.suffix());
         }
         s
     }

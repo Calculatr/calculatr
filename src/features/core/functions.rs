@@ -476,6 +476,7 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         Eval::Command,
     ),
     FunctionDef::new("settings", &[], "List all settings", Eval::Command),
+    FunctionDef::new("units", &[], "List the available units", Eval::Command),
     FunctionDef::new(
         "set",
         &["setting", "value"],

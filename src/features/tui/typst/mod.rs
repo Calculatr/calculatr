@@ -45,6 +45,10 @@ mod tests {
             "delvar(physics, -r)",
             "physics.a1.g * 2",
             "set(notation, si)",
+            "9.81_m/s^2",
+            "(a+b)_km",
+            "72_km/h -> m/s",
+            "5_µs + 2_kOhm",
             "e",
             "pi*r^2",
             "my_var + 1.5",
@@ -90,13 +94,27 @@ mod tests {
     fn every_number_format_compiles() {
         let theme = Theme::cyberpunk();
         let mut env = Environment::new();
-        let answers: Vec<Answer> = ["1500", "-0.0000047", "2^100", "1/3", "12y", "10^40"]
-            .iter()
-            .filter_map(|src| match evaluate(&mut env, src, RenderMode::Decimal) {
-                Evaluation::Answer(a @ Answer::Value { .. }) => Some(a),
-                _ => None,
-            })
-            .collect();
+        let answers: Vec<Answer> = [
+            "1500",
+            "-0.0000047",
+            "2^100",
+            "1/3",
+            "12y",
+            "10^40",
+            "1500_m",
+            "2_N*3_m",
+            "72_km/h -> m/s",
+            "1/(2_s)",
+            "3_kOhm",
+            "x*2_m",
+            "x + 1_m",
+        ]
+        .iter()
+        .filter_map(|src| match evaluate(&mut env, src, RenderMode::Decimal) {
+            Evaluation::Answer(a @ Answer::Value { .. }) => Some(a),
+            _ => None,
+        })
+        .collect();
         for notation in Notation::ALL {
             for exponent_step in ExponentStep::ALL {
                 for decimal_places in [None, Some(2)] {

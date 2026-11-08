@@ -479,6 +479,47 @@ mod tests {
     }
 
     #[test]
+    fn units_follow_the_number_format() {
+        let mut app = app();
+        submit(&mut app, "1500_m");
+        assert_eq!(last_answer(&app), "1500_m");
+        let result = app.history.len() - 1;
+        submit(&mut app, "notation(si)");
+        let shown = |app: &App| {
+            app.history[result]
+                .answer
+                .text_with(&app.settings.number_format)
+        };
+        assert_eq!(shown(&app), "1.5_km");
+        submit(&mut app, "notation(sci)");
+        assert_eq!(shown(&app), "(1.5*10^3)_m");
+        submit(&mut app, "notation(si)");
+        submit(&mut app, "0.0047_A");
+        assert_eq!(last_answer(&app), "4.7_mA");
+        submit(&mut app, "2_kN*3_m");
+        assert_eq!(last_answer(&app), "6_kJ");
+    }
+
+    #[test]
+    fn inserted_quantities_parse_back() {
+        let mut app = app();
+        submit(&mut app, "notation(sci)");
+        submit(&mut app, "1500_m");
+        app.on_key(key(KeyCode::Esc));
+        app.on_key(key(KeyCode::Up));
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(input(&app), "(1.5*10^3)_m");
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(last_answer(&app), "(1.5*10^3)_m");
+        submit(&mut app, "notation(si)");
+        app.on_key(key(KeyCode::Esc));
+        app.on_key(key(KeyCode::Up));
+        app.on_key(key(KeyCode::Char('k')));
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(input(&app), "1.5_km");
+    }
+
+    #[test]
     fn hotkey_rebinding_round_trip() {
         let mut app = app();
         app.on_key(key(KeyCode::F(4)));
