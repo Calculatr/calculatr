@@ -14,6 +14,23 @@ pub fn simplify(e: &Expr) -> Result<Expr, String> {
         Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => e.clone(),
         Expr::Convert(a, u) => Expr::Convert(Box::new(simplify(a)?), u.clone()),
         Expr::Neg(a) => scale(simplify(a)?, -Rational::one()),
+        Expr::Fact(a) => {
+            let inner = simplify(a)?;
+            match &inner {
+                Expr::Num(r) => match number::factorial(r) {
+                    Some(res) => Expr::Num(res),
+                    None => {
+                        if !number::is_integer(r) || r.is_negative() {
+                            return Err(
+                                "Factorial is only defined for non-negative integers".into()
+                            );
+                        }
+                        return Err("Factorial input too large".into());
+                    }
+                },
+                _ => Expr::Fact(Box::new(inner)),
+            }
+        }
         Expr::Add(a, b) => sum(vec![
             (Rational::one(), simplify(a)?),
             (Rational::one(), simplify(b)?),
@@ -256,6 +273,22 @@ pub fn eval_f64(e: &Expr) -> Result<f64, String> {
         Expr::Unit(u) => Err(format!("'{u}' is a unit, not a number")),
         Expr::Convert(a, _) => eval_f64(a),
         Expr::Neg(a) => Ok(-eval_f64(a)?),
+        Expr::Fact(a) => {
+            let v = eval_f64(a)?;
+            let n = number::to_int_exact(v)
+                .ok_or_else(|| "Factorial requires a non-negative integer".to_string())?;
+            if n < 0 {
+                return Err("Factorial is only defined for non-negative integers".into());
+            }
+            if n > 170 {
+                return Err("Factorial overflows f64".into());
+            }
+            let mut acc = 1.0f64;
+            for i in 2..=n {
+                acc *= i as f64;
+            }
+            check(acc, [v, 0.0], "Factorial")
+        }
         Expr::Add(a, b) => {
             let (l, r) = both(a, b)?;
             check(l + r, [l, r], "Sum")
@@ -377,6 +410,29 @@ pub fn eval_c64(e: &Expr) -> Result<Complex64, String> {
         Expr::Unit(u) => Err(format!("'{u}' is a unit, not a number")),
         Expr::Convert(a, _) => eval_c64(a),
         Expr::Neg(a) => Ok(-eval_c64(a)?),
+        Expr::Fact(a) => {
+            let z = eval_c64(a)?;
+            if z.im != 0.0 {
+                return Err("Factorial not supported for complex numbers".into());
+            }
+            let n = number::to_int_exact(z.re)
+                .ok_or_else(|| "Factorial requires a non-negative integer".to_string())?;
+            if n < 0 {
+                return Err("Factorial is only defined for non-negative integers".into());
+            }
+            if n > 170 {
+                return Err("Factorial overflows".into());
+            }
+            let mut acc = 1.0f64;
+            for i in 2..=n {
+                acc *= i as f64;
+            }
+            check(
+                Complex64::new(acc, 0.0),
+                [z, Complex64::zero()],
+                "Factorial",
+            )
+        }
         Expr::Add(a, b) => {
             let (l, r) = both(a, b)?;
             check(l + r, [l, r], "Sum")

@@ -50,6 +50,8 @@ pub enum Expr {
     Constant(MathConstant),
     Variable(String),
     Neg(Box<Expr>),
+    Fact(Box<Expr>),
+    // TODO: Percent %
     Add(Box<Expr>, Box<Expr>),
     Sub(Box<Expr>, Box<Expr>),
     Mul(Box<Expr>, Box<Expr>),
@@ -79,7 +81,7 @@ impl Expr {
     pub fn children(&self) -> Vec<&Expr> {
         match self {
             Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => vec![],
-            Expr::Neg(a) => vec![a],
+            Expr::Neg(a) | Expr::Fact(a) => vec![a],
             Expr::Add(a, b)
             | Expr::Sub(a, b)
             | Expr::Mul(a, b)
@@ -96,6 +98,7 @@ impl Expr {
         Ok(match self {
             Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => self.clone(),
             Expr::Neg(a) => Expr::Neg(bx(f(a)?)),
+            Expr::Fact(a) => Expr::Fact(bx(f(a)?)),
             Expr::Add(a, b) => Expr::Add(bx(f(a)?), bx(f(b)?)),
             Expr::Sub(a, b) => Expr::Sub(bx(f(a)?), bx(f(b)?)),
             Expr::Mul(a, b) => Expr::Mul(bx(f(a)?), bx(f(b)?)),

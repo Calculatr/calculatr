@@ -19,6 +19,18 @@ pub fn split(e: &Expr) -> Result<Option<(Expr, Dimension)>, String> {
             };
             (Expr::Neg(bx(s)), d)
         }
+        Expr::Fact(a) => {
+            let Some((s, d)) = split(a)? else {
+                return Ok(None);
+            };
+            if !d.is_dimensionless() {
+                return Err(format!(
+                    "Factorial needs a dimensionless argument (got {})",
+                    dimension_text(d)
+                ));
+            }
+            (Expr::Fact(bx(s)), Dimension::NONE)
+        }
         Expr::Add(a, b) | Expr::Sub(a, b) => {
             let (Some((sa, da)), Some((sb, db))) = (split(a)?, split(b)?) else {
                 return Ok(None);

@@ -135,6 +135,23 @@ pub fn fmt_f64(v: f64) -> String {
     }
 }
 
+const MAX_FACTORIAL: u64 = 10_000;
+
+pub fn factorial(r: &Rational) -> Option<Rational> {
+    if !is_integer(r) || r.is_negative() {
+        return None;
+    }
+    let n = r.numer().to_u64()?;
+    if n > MAX_FACTORIAL {
+        return None;
+    }
+    let mut acc = BigInt::from(1u32);
+    for i in 2..=n {
+        acc *= i;
+    }
+    Some(Rational::from_integer(acc))
+}
+
 pub fn pow_int(base: &Rational, exp: &Rational) -> Option<Rational> {
     if !is_integer(exp) {
         return None;

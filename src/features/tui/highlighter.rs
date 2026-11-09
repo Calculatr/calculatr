@@ -113,7 +113,7 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             i += 2;
         } else {
             let kind = match c {
-                '+' | '-' | '*' | '/' | '^' | '=' => TokenKind::Operator,
+                '+' | '-' | '*' | '/' | '^' | '=' | '!' => TokenKind::Operator,
                 '(' | ')' | '[' | ']' | '{' | '}' => TokenKind::Bracket,
                 ',' => TokenKind::Punct,
                 _ => TokenKind::Text,

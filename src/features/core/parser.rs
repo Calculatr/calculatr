@@ -137,7 +137,7 @@ impl<'a> Parser<'a> {
         if self.match_char(b'+') {
             return self.parse_unary();
         }
-        self.parse_power()
+        self.parse_postfix()
     }
 
     fn parse_power(&mut self) -> Result<Expr, String> {
@@ -146,6 +146,20 @@ impl<'a> Parser<'a> {
         if self.match_char(b'^') {
             let exp = self.parse_unary()?;
             return Ok(base.bin(Expr::Pow, exp));
+        }
+        Ok(base)
+    }
+
+    fn parse_postfix(&mut self) -> Result<Expr, String> {
+        let mut base = self.parse_power()?;
+        loop {
+            self.skip_whitespace();
+            if self.peek() == Some(b'!') && self.chars.get(self.pos + 1) != Some(&b'=') {
+                self.pos += 1;
+                base = Expr::Fact(Box::new(base));
+            } else {
+                break;
+            }
         }
         Ok(base)
     }
