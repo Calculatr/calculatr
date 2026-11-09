@@ -1,6 +1,8 @@
 use super::theme::TokenKind;
 use crate::features::core::ast::{ANS, MathConstant};
 use crate::features::core::functions;
+use crate::features::core::names::SEPARATOR;
+use crate::features::core::units::{self, CONVERSION_ARROW, UNIT_SEPARATOR};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Token {
@@ -15,14 +17,62 @@ fn token(text: impl Into<String>, kind: TokenKind) -> Token {
     }
 }
 
+fn c_is(chars: &[char], i: usize, c: char) -> bool {
+    chars.get(i) == Some(&c)
+}
+
 pub fn tokenize(input: &str) -> Vec<Token> {
     let chars: Vec<char> = input.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
 
     let next_non_space = |from: usize| chars[from..].iter().find(|c| !c.is_whitespace()).copied();
+    let unit_chain = |from: usize| {
+        let rest: String = chars[from..].iter().collect();
+        units::parse_chain(&rest)
+            .ok()
+            .map(|(_, bytes)| rest[..bytes].chars().count())
+    };
 
     while i < chars.len() {
+        let attaches_unit = matches!(
+            out.last(),
+            Some(Token {
+                kind: TokenKind::Number,
+                ..
+            })
+        ) || out.last().is_some_and(|t: &Token| t.text == ")");
+        if c_is(&chars, i, UNIT_SEPARATOR)
+            && attaches_unit
+            && let Some(len) = unit_chain(i + 1)
+        {
+            out.push(token(
+                chars[i..i + 1 + len].iter().collect::<String>(),
+                TokenKind::Constant,
+            ));
+            i += 1 + len;
+            continue;
+        }
+        if chars[i..].starts_with(&CONVERSION_ARROW.chars().collect::<Vec<_>>()) {
+            out.push(token(CONVERSION_ARROW, TokenKind::Operator));
+            i += CONVERSION_ARROW.len();
+            let spaces = chars[i..].iter().take_while(|c| c.is_whitespace()).count();
+            if spaces > 0 {
+                out.push(token(
+                    chars[i..i + spaces].iter().collect::<String>(),
+                    TokenKind::Text,
+                ));
+                i += spaces;
+            }
+            if let Some(len) = unit_chain(i) {
+                out.push(token(
+                    chars[i..i + len].iter().collect::<String>(),
+                    TokenKind::Constant,
+                ));
+                i += len;
+            }
+            continue;
+        }
         let c = chars[i];
         if c.is_ascii_digit() || c == '.' {
             let start = i;
@@ -35,7 +85,15 @@ pub fn tokenize(input: &str) -> Vec<Token> {
             ));
         } else if c.is_alphabetic() || c == '_' {
             let start = i;
-            while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+            loop {
+                while i < chars.len() && (chars[i].is_alphanumeric() || chars[i] == '_') {
+                    i += 1;
+                }
+                let continues = chars.get(i) == Some(&SEPARATOR)
+                    && chars.get(i + 1).is_some_and(|c| c.is_alphabetic());
+                if !continues {
+                    break;
+                }
                 i += 1;
             }
             let word: String = chars[start..i].iter().collect();
@@ -114,8 +172,48 @@ mod tests {
     }
 
     #[test]
+    fn dotted_names_are_one_token() {
+        assert_eq!(
+            kinds("physics.g*2.5"),
+            vec![
+                ("physics.g".into(), Variable),
+                ("*".into(), Operator),
+                ("2.5".into(), Number),
+            ]
+        );
+    }
+
+    #[test]
+    fn units_and_conversions() {
+        assert_eq!(
+            kinds("9.81_m/s^2*x -> km/h"),
+            vec![
+                ("9.81".into(), Number),
+                ("_m/s^2".into(), Constant),
+                ("*".into(), Operator),
+                ("x".into(), Variable),
+                (" ".into(), Text),
+                ("->".into(), Operator),
+                (" ".into(), Text),
+                ("km/h".into(), Constant),
+            ]
+        );
+        assert_eq!(kinds("v_0")[0], ("v_0".into(), Variable));
+        assert_eq!(kinds("(a)_kN")[3], ("_kN".into(), Constant));
+    }
+
+    #[test]
     fn tokens_reassemble_to_the_input() {
-        for s in ["", "3y = 2", "frac(1, 2) ^ -x", "αβ + 1"] {
+        for s in [
+            "",
+            "3y = 2",
+            "frac(1, 2) ^ -x",
+            "αβ + 1",
+            "a.b.c + d.",
+            "5_µs -> ms",
+            "2_xyz",
+            "->",
+        ] {
             let joined: String = tokenize(s).into_iter().map(|t| t.text).collect();
             assert_eq!(joined, s);
         }

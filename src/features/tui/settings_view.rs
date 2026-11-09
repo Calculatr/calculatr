@@ -25,6 +25,7 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
     let parts = Layout::vertical([Constraint::Min(1), Constraint::Length(2)]).split(inner);
 
     let mut lines: Vec<Line> = Vec::new();
+    let mut cursor_line = 0;
     for (i, row) in rows.iter().enumerate() {
         let selected = cursor == Some(i);
         let marker = if selected { "▶ " } else { "  " };
@@ -49,18 +50,42 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
                         .add_modifier(Modifier::BOLD),
                 )));
             }
-            SettingsRow::Toggle(t) => {
-                let on = app.settings.get(t);
-                let value = if on { "[x] on " } else { "[ ] off" };
+            SettingsRow::Setting(setting) => {
+                let applicable = app.settings.is_applicable(setting);
+                let (value, color) = match app.settings.switch(setting) {
+                    Some(true) => ("[x] on".to_string(), theme.message),
+                    Some(false) => ("[ ] off".to_string(), theme.dim),
+                    None => (
+                        format!("◂ {} ▸", app.settings.value_label(setting)),
+                        theme.bracket,
+                    ),
+                };
                 let value_style = if selected {
                     base
+                } else if applicable {
+                    Style::default().fg(color)
                 } else {
-                    Style::default().fg(if on { theme.message } else { theme.dim })
+                    Style::default().fg(theme.dim)
                 };
-                lines.push(Line::from(vec![
-                    Span::styled(format!("{marker}{:<LABEL_WIDTH$}", t.label()), base),
-                    Span::styled(value.to_string(), value_style),
-                ]));
+                let label_style = if selected || applicable {
+                    base
+                } else {
+                    Style::default().fg(theme.dim)
+                };
+                let mut spans = vec![
+                    Span::styled(
+                        format!("{marker}{:<LABEL_WIDTH$}", setting.label()),
+                        label_style,
+                    ),
+                    Span::styled(value, value_style),
+                ];
+                if let Some(reason) = app.settings.inactive_reason(setting) {
+                    spans.push(Span::styled(
+                        format!("  ({reason})"),
+                        Style::default().fg(theme.dim),
+                    ));
+                }
+                lines.push(Line::from(spans));
             }
             SettingsRow::Hotkey(action) => {
                 let capturing = app.settings_view.capturing == Some(action);
@@ -86,23 +111,34 @@ pub fn draw(f: &mut Frame, app: &App, area: Rect) {
                 ]));
             }
         }
+        if selected {
+            cursor_line = lines.len().saturating_sub(1);
+        }
     }
-    f.render_widget(Paragraph::new(lines), parts[0]);
+    let visible = parts[0].height as usize;
+    let scroll = (cursor_line + 1).saturating_sub(visible) as u16;
+    f.render_widget(Paragraph::new(lines).scroll((scroll, 0)), parts[0]);
 
-    let help = match cursor.map(|i| rows[i]) {
-        Some(SettingsRow::Toggle(t)) => t.description().to_string(),
-        Some(SettingsRow::Hotkey(a)) => format!(
-            "Enter rebinds \"{}\" (F-key or Ctrl/Alt combination). Default: {}",
-            a.label(),
-            a.default_binding()
+    let (help, command) = match cursor.map(|i| rows[i]) {
+        Some(SettingsRow::Setting(setting)) => (
+            setting.description().to_string(),
+            format!("Command: {}   ·   ← → change", setting.command_hint()),
         ),
-        _ => String::new(),
+        Some(SettingsRow::Hotkey(a)) => (
+            format!(
+                "Enter rebinds \"{}\" (F-key or Ctrl/Alt combination). Default: {}",
+                a.label(),
+                a.default_binding()
+            ),
+            String::new(),
+        ),
+        _ => (String::new(), String::new()),
     };
     f.render_widget(
-        Paragraph::new(Line::from(Span::styled(
-            help,
-            Style::default().fg(theme.dim),
-        ))),
+        Paragraph::new(vec![
+            Line::from(Span::styled(help, Style::default().fg(theme.dim))),
+            Line::from(Span::styled(command, Style::default().fg(theme.bracket))),
+        ]),
         parts[1],
     );
 }

@@ -6,6 +6,7 @@ mod tests {
     use super::*;
     use crate::features::core::ast::Stmt;
     use crate::features::core::evaluate;
+    use crate::features::core::notation::{ExponentStep, Notation, NumberFormat};
     use crate::features::core::parser::parse_stmt;
     use crate::features::core::{Answer, Environment, Evaluation, RenderMode};
     use crate::features::tui::theme::Theme;
@@ -41,6 +42,13 @@ mod tests {
             "foo(1,2,3)",
             "clear()",
             "delvar(x)",
+            "delvar(physics, -r)",
+            "physics.a1.g * 2",
+            "set(notation, si)",
+            "9.81_m/s^2",
+            "(a+b)_km",
+            "72_km/h -> m/s",
+            "5_µs + 2_kOhm",
             "e",
             "pi*r^2",
             "my_var + 1.5",
@@ -76,7 +84,49 @@ mod tests {
             ] {
                 if let Evaluation::Answer(a @ Answer::Value { .. }) = evaluate(&mut env, src, mode)
                 {
-                    render(markup::answer_source(&a, &theme).unwrap());
+                    render(markup::answer_source(&a, &theme, &NumberFormat::default()).unwrap());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_number_format_compiles() {
+        let theme = Theme::cyberpunk();
+        let mut env = Environment::new();
+        let answers: Vec<Answer> = [
+            "1500",
+            "-0.0000047",
+            "2^100",
+            "1/3",
+            "12y",
+            "10^40",
+            "1500_m",
+            "2_N*3_m",
+            "72_km/h -> m/s",
+            "1/(2_s)",
+            "3_kOhm",
+            "x*2_m",
+            "x + 1_m",
+        ]
+        .iter()
+        .filter_map(|src| match evaluate(&mut env, src, RenderMode::Decimal) {
+            Evaluation::Answer(a @ Answer::Value { .. }) => Some(a),
+            _ => None,
+        })
+        .collect();
+        for notation in Notation::ALL {
+            for exponent_step in ExponentStep::ALL {
+                for decimal_places in [None, Some(2)] {
+                    let numbers = NumberFormat {
+                        decimal_places,
+                        notation,
+                        exponent_step,
+                        extended_prefixes: true,
+                    };
+                    for a in &answers {
+                        render(markup::answer_source(a, &theme, &numbers).unwrap());
+                    }
                 }
             }
         }
@@ -112,7 +162,7 @@ mod tests {
         let Evaluation::Answer(a) = evaluate(&mut env, "123456", RenderMode::Decimal) else {
             panic!()
         };
-        let img = render(markup::answer_source(&a, &theme).unwrap());
+        let img = render(markup::answer_source(&a, &theme, &NumberFormat::default()).unwrap());
         assert_close(
             dominant(&img),
             rgb(theme.token_color(LineRole::Result, TokenKind::Number)),

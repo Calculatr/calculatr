@@ -1,11 +1,14 @@
+use std::collections::BTreeSet;
+
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::clipboard::CopyTarget;
 use super::{App, Focus, Tab};
-use crate::features::core::{self, Evaluation};
+use crate::features::core::{self, Evaluation, names};
 use crate::features::editor::{EditorConfig, EditorEvent, Leave, ListEvent, ListSpec, Mode};
 use crate::features::history::{self, HistoryEntry};
-use crate::features::settings::{Action, Toggle};
+use crate::features::settings::{Action, Setting};
+use crate::features::variables::{self, TreeRow};
 
 impl App {
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -45,7 +48,7 @@ impl App {
                 self.set_status(format!("Mode: {:?}", self.render_mode));
             }
             Action::ToggleTypst => {
-                self.settings.flip(Toggle::TypstRendering);
+                self.settings.step(Setting::TypstRendering, true);
                 self.save_settings();
                 let state = if self.settings.typst_rendering {
                     "on"
@@ -165,13 +168,19 @@ impl App {
     }
 
     fn evaluate_and_record(&mut self, input: &str) {
-        match core::evaluate(&mut self.env, input, self.render_mode) {
-            Evaluation::ClearHistory => self.history.clear(),
-            Evaluation::Answer(answer) => self.history.push(HistoryEntry {
-                input: input.trim().to_string(),
-                answer,
-            }),
-        }
+        let answer = match core::evaluate(&mut self.env, input, self.render_mode) {
+            Evaluation::ClearHistory => {
+                self.history.clear();
+                return;
+            }
+            Evaluation::Answer(answer) => answer,
+            Evaluation::Configure(request) => self.apply_config(request),
+        };
+        self.history.push(HistoryEntry {
+            input: input.trim().to_string(),
+            answer,
+        });
+        self.prune_collapsed_sections();
     }
 
     // --- focus changes ------------------------------------------------------
@@ -198,10 +207,10 @@ impl App {
     }
 
     fn focus_variables(&mut self) {
-        let names = self.env.sorted_names(&self.var_filter);
+        let rows = self.var_rows();
         let always = |_: usize| true;
         let spec = ListSpec {
-            len: names.len(),
+            len: rows.len(),
             selectable: &always,
             allow_filter: true,
         };
@@ -267,7 +276,9 @@ impl App {
 
     fn joined_history_text(&self, lines: std::ops::RangeInclusive<usize>) -> String {
         lines
-            .filter_map(|l| history::insert_text(&self.history, l))
+            .filter_map(|l| {
+                history::insert_text_with(&self.history, l, &self.settings.number_format)
+            })
             .collect::<Vec<_>>()
             .join(", ")
     }
@@ -290,10 +301,14 @@ impl App {
             return;
         }
 
-        let names = self.env.sorted_names(&self.var_filter);
+        let rows = self.var_rows();
+        if !self.var_nav.is_visual() && self.tree_key(key, &rows) {
+            return;
+        }
+
         let always = |_: usize| true;
         let spec = ListSpec {
-            len: names.len(),
+            len: rows.len(),
             selectable: &always,
             allow_filter: true,
         };
@@ -301,22 +316,21 @@ impl App {
         match self.var_nav.handle_key(key, &spec) {
             ListEvent::None => {}
             ListEvent::Insert(range) => {
-                let text = names[range].join(", ");
+                let text = insertion_text(&rows[range]);
                 self.editor.paste_and_insert(&text);
                 self.focus_input();
             }
             ListEvent::Yank(range) => {
-                self.yank(names[range.clone()].join(", "));
-                self.set_status(format!("Yanked {} variable(s)", range.count()));
+                let picked = &rows[range];
+                let text = picked
+                    .iter()
+                    .map(TreeRow::insert_text)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                self.yank(text);
+                self.set_status(format!("Yanked {} item(s)", picked.len()));
             }
-            ListEvent::Delete(range) => {
-                let count = range.clone().count();
-                for name in &names[range] {
-                    self.env.remove_var(name);
-                }
-                self.refresh_var_cursor();
-                self.set_status(format!("Deleted {count} variable(s)"));
-            }
+            ListEvent::Delete(range) => self.delete_var_rows(&rows[range]),
             ListEvent::StartFilter => {
                 self.var_filter_active = true;
                 self.var_filter.clear();
@@ -333,17 +347,104 @@ impl App {
         }
     }
 
+    fn tree_key(&mut self, key: KeyEvent, rows: &[TreeRow]) -> bool {
+        if key.modifiers.contains(KeyModifiers::CONTROL) {
+            return false;
+        }
+        let Some(row) = self.var_nav.cursor.and_then(|i| rows.get(i)) else {
+            return false;
+        };
+        let cursor = self.var_nav.cursor.unwrap_or(0);
+        match key.code {
+            KeyCode::Enter | KeyCode::Char(' ') if row.is_section() => {
+                self.set_section_expanded(&row.path, !row.is_expanded());
+                true
+            }
+            KeyCode::Right | KeyCode::Char('l') if row.is_section() => {
+                if row.is_expanded() {
+                    if rows.get(cursor + 1).is_some_and(|r| r.depth > row.depth) {
+                        self.var_nav.cursor = Some(cursor + 1);
+                    }
+                } else {
+                    self.set_section_expanded(&row.path, true);
+                }
+                true
+            }
+            KeyCode::Left | KeyCode::Char('h') => {
+                if row.is_expanded() && self.var_filter.is_empty() {
+                    self.set_section_expanded(&row.path, false);
+                    return true;
+                }
+                match names::parent(&row.path).and_then(|p| variables::find(rows, p)) {
+                    Some(parent) => {
+                        self.var_nav.cursor = Some(parent);
+                        true
+                    }
+                    None => false,
+                }
+            }
+            _ => false,
+        }
+    }
+
+    fn set_section_expanded(&mut self, path: &str, expanded: bool) {
+        if expanded {
+            self.var_collapsed.remove(path);
+        } else {
+            self.var_collapsed.insert(path.to_string());
+        }
+        self.refresh_var_cursor();
+    }
+
+    fn delete_var_rows(&mut self, rows: &[TreeRow]) {
+        let mut targets = BTreeSet::new();
+        let mut sections = 0;
+        for row in rows {
+            if row.is_section() {
+                sections += 1;
+                targets.extend(self.env.section_members(&row.path));
+            } else {
+                targets.insert(row.path.clone());
+            }
+        }
+        let deleted = targets.iter().filter(|n| self.env.remove_var(n)).count();
+        self.prune_collapsed_sections();
+        self.refresh_var_cursor();
+        let variables = format!("{deleted} variable{}", if deleted == 1 { "" } else { "s" });
+        self.set_status(match sections {
+            0 => format!("Deleted {variables}"),
+            1 => format!("Deleted 1 section ({variables})"),
+            n => format!("Deleted {n} sections ({variables})"),
+        });
+    }
+
+    fn prune_collapsed_sections(&mut self) {
+        let env = &self.env;
+        self.var_collapsed.retain(|p| env.is_section(p));
+    }
+
     fn refresh_var_cursor(&mut self) {
-        let names = self.env.sorted_names(&self.var_filter);
+        let rows = self.var_rows();
         let always = |_: usize| true;
         let spec = ListSpec {
-            len: names.len(),
+            len: rows.len(),
             selectable: &always,
             allow_filter: true,
         };
         self.var_nav.clamp(&spec);
         self.var_nav.ensure_cursor(&spec, false);
     }
+}
+
+fn insertion_text(rows: &[TreeRow]) -> String {
+    if let [row] = rows {
+        return row.insert_text();
+    }
+    rows.iter()
+        .filter(|r| !r.is_section())
+        .map(|r| r.path.clone())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn single_line(text: &str) -> String {

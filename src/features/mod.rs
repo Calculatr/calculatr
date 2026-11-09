@@ -4,3 +4,4 @@ pub mod history;
 pub mod persistence;
 pub mod settings;
 pub mod tui;
+pub mod variables;

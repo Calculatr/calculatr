@@ -4,11 +4,16 @@ pub mod ast;
 pub mod evaluator;
 pub mod format;
 pub mod functions;
+pub mod names;
+pub mod notation;
 pub mod number;
 pub mod parser;
+pub mod quantity;
+pub mod units;
 
-pub use answer::{Answer, Evaluation};
+pub use answer::{Answer, ConfigRequest, Evaluation};
 pub use evaluator::{Environment, RenderMode};
+pub use notation::{ExponentStep, Notation, NumberFormat};
 
 pub fn evaluate(env: &mut Environment, input: &str, mode: RenderMode) -> Evaluation {
     evaluator::evaluate(env, input, mode)

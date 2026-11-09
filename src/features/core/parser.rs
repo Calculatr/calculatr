@@ -1,5 +1,7 @@
 use super::ast::{Expr, MathConstant, Stmt};
+use super::names::SEPARATOR;
 use super::number::parse_decimal;
+use super::units::{self, CONVERSION_ARROW, UNIT_SEPARATOR};
 
 pub struct Parser<'a> {
     chars: &'a [u8],
@@ -37,13 +39,43 @@ impl<'a> Parser<'a> {
                 if MathConstant::from_name(&name).is_some() {
                     return Err(format!("'{name}' is a constant and read-only"));
                 }
-                let value = self.parse_equation()?;
+                let value = self.parse_converted()?;
                 return Ok(Stmt::Assign(name, value));
             }
         }
 
         self.pos = start;
-        Ok(Stmt::Expr(self.parse_equation()?))
+        Ok(Stmt::Expr(self.parse_converted()?))
+    }
+
+    fn parse_converted(&mut self) -> Result<Expr, String> {
+        let value = self.parse_equation()?;
+        self.skip_whitespace();
+        if !self.match_str(CONVERSION_ARROW) {
+            return Ok(value);
+        }
+        self.skip_whitespace();
+        if self.peek().is_none() {
+            return Err(format!("Expected a unit after '{CONVERSION_ARROW}'"));
+        }
+        let unit = self.parse_unit_chain()?;
+        Ok(Expr::Convert(Box::new(value), Box::new(unit)))
+    }
+
+    fn parse_unit_chain(&mut self) -> Result<Expr, String> {
+        let rest = std::str::from_utf8(&self.chars[self.pos..]).map_err(|e| e.to_string())?;
+        let (unit, used) = units::parse_chain(rest)?;
+        self.pos += used;
+        Ok(unit)
+    }
+
+    fn with_unit(&mut self, value: Expr) -> Result<Expr, String> {
+        if self.peek() != Some(UNIT_SEPARATOR as u8) {
+            return Ok(value);
+        }
+        self.pos += 1;
+        let unit = self.parse_unit_chain()?;
+        Ok(Expr::Mul(Box::new(value), Box::new(unit)))
     }
 
     fn parse_equation(&mut self) -> Result<Expr, String> {
@@ -65,13 +97,17 @@ impl<'a> Parser<'a> {
             if self.match_char(b'+') {
                 let right = self.parse_term()?;
                 left = left.bin(Expr::Add, right);
-            } else if self.match_char(b'-') {
+            } else if !self.at_arrow() && self.match_char(b'-') {
                 let right = self.parse_term()?;
                 left = left.bin(Expr::Sub, right);
             } else {
                 return Ok(left);
             }
         }
+    }
+
+    fn at_arrow(&self) -> bool {
+        self.chars[self.pos..].starts_with(CONVERSION_ARROW.as_bytes())
     }
 
     fn parse_term(&mut self) -> Result<Expr, String> {
@@ -143,7 +179,7 @@ impl<'a> Parser<'a> {
             if !self.match_char(b')') {
                 return Err("Expected closing parenthesis ')'".to_string());
             }
-            return Ok(expr);
+            return self.with_unit(expr);
         }
 
         if c == b'<' && self.chars.get(self.pos + 1) == Some(&b'>') {
@@ -159,9 +195,10 @@ impl<'a> Parser<'a> {
             self.pos += 1;
         }
         let text = std::str::from_utf8(&self.chars[start..self.pos]).unwrap_or_default();
-        parse_decimal(text)
+        let value = parse_decimal(text)
             .map(Expr::Num)
-            .ok_or_else(|| format!("Could not parse number: {text}"))
+            .ok_or_else(|| format!("Could not parse number: {text}"))?;
+        self.with_unit(value)
     }
 
     fn parse_call(&mut self, name: String) -> Result<Expr, String> {
@@ -189,10 +226,21 @@ impl<'a> Parser<'a> {
             return None;
         }
         let start = self.pos;
-        while self
-            .peek()
-            .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
-        {
+        loop {
+            while self
+                .peek()
+                .is_some_and(|b| b.is_ascii_alphanumeric() || b == b'_')
+            {
+                self.pos += 1;
+            }
+            let continues = self.peek() == Some(SEPARATOR as u8)
+                && self
+                    .chars
+                    .get(self.pos + 1)
+                    .is_some_and(|b| b.is_ascii_alphabetic());
+            if !continues {
+                break;
+            }
             self.pos += 1;
         }
         Some(String::from_utf8_lossy(&self.chars[start..self.pos]).into_owned())
@@ -317,6 +365,71 @@ mod tests {
         assert!(parse_stmt("pi := 3").is_err());
         assert!(parse_stmt("sin(<>)").unwrap_err().contains("placeholder"));
         assert!(parse_stmt("1.2.3").is_err());
+    }
+
+    #[test]
+    fn dotted_names_address_sections() {
+        assert_eq!(
+            parse_stmt("physics.a1.g := 9.81").unwrap(),
+            Stmt::Assign(
+                "physics.a1.g".into(),
+                Expr::Num(parse_decimal("9.81").unwrap())
+            )
+        );
+        assert_eq!(
+            expr("2physics.g"),
+            Expr::num(2).bin(Expr::Mul, var("physics.g"))
+        );
+        assert!(parse_stmt("physics.").is_err());
+        assert!(parse_stmt("physics.1").is_err());
+        assert_eq!(expr("x.y+1").children()[0], &var("x.y"));
+    }
+
+    #[test]
+    fn quantities_and_conversions() {
+        let unit = |u: &str| Expr::Unit(u.into());
+        assert_eq!(expr("5_N"), Expr::num(5).bin(Expr::Mul, unit("N")));
+        assert_eq!(
+            expr("9.81_m/s^2"),
+            Expr::Num(parse_decimal("9.81").unwrap()).bin(
+                Expr::Mul,
+                unit("m").bin(Expr::Div, unit("s").bin(Expr::Pow, Expr::num(2)))
+            )
+        );
+        assert_eq!(
+            expr("(1+2)_km"),
+            Expr::num(1)
+                .bin(Expr::Add, Expr::num(2))
+                .bin(Expr::Mul, unit("km"))
+        );
+        assert_eq!(
+            expr("2_m*x"),
+            Expr::num(2)
+                .bin(Expr::Mul, unit("m"))
+                .bin(Expr::Mul, var("x"))
+        );
+        assert_eq!(
+            expr("6_m / s"),
+            Expr::num(6)
+                .bin(Expr::Mul, unit("m"))
+                .bin(Expr::Div, var("s"))
+        );
+        assert_eq!(
+            expr("72_km/h -> m/s"),
+            Expr::Convert(
+                Box::new(Expr::num(72).bin(Expr::Mul, unit("km").bin(Expr::Div, unit("h")))),
+                Box::new(unit("m").bin(Expr::Div, unit("s")))
+            )
+        );
+        assert_eq!(expr("5_us"), Expr::num(5).bin(Expr::Mul, unit("µs")));
+        assert_eq!(expr("x-1"), var("x").bin(Expr::Sub, Expr::num(1)));
+        assert!(parse_stmt("5_xyz").unwrap_err().contains("Unknown unit"));
+        assert!(parse_stmt("5 ->").is_err());
+        assert!(matches!(
+            parse_stmt("v := 3_km -> m").unwrap(),
+            Stmt::Assign(_, Expr::Convert(..))
+        ));
+        assert_eq!(expr("v_0"), var("v_0"));
     }
 
     #[test]

@@ -1,14 +1,15 @@
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::{App, Tab};
+use crate::features::core::{Answer, ConfigRequest};
 use crate::features::editor::{Leave, ListEvent, ListNav, ListSpec};
 use crate::features::persistence;
-use crate::features::settings::{Action, KeyBinding, Toggle};
+use crate::features::settings::{Action, KeyBinding, Setting, SettingGroup};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingsRow {
     Header(&'static str),
-    Toggle(Toggle),
+    Setting(Setting),
     Hotkey(Action),
 }
 
@@ -19,8 +20,11 @@ impl SettingsRow {
 }
 
 pub fn settings_rows() -> Vec<SettingsRow> {
-    let mut rows = vec![SettingsRow::Header("General")];
-    rows.extend(Toggle::ALL.iter().map(|&t| SettingsRow::Toggle(t)));
+    let mut rows = Vec::new();
+    for &group in SettingGroup::ALL {
+        rows.push(SettingsRow::Header(group.title()));
+        rows.extend(Setting::in_group(group).map(SettingsRow::Setting));
+    }
     rows.push(SettingsRow::Header("Hotkeys"));
     rows.extend(Action::ALL.iter().map(|&a| SettingsRow::Hotkey(a)));
     rows
@@ -73,17 +77,17 @@ impl App {
                 return;
             }
             (KeyCode::Char(' '), Some(row)) if plain => {
-                self.activate_setting(row);
+                self.activate_setting(row, true);
                 return;
             }
             _ => {}
         }
 
         match self.settings_view.nav.handle_key(key, &spec) {
-            ListEvent::Insert(range) => self.activate_setting(rows[*range.start()]),
-            ListEvent::Leave(Leave::Left | Leave::Right) => {
-                if let Some(SettingsRow::Toggle(t)) = current {
-                    self.activate_setting(SettingsRow::Toggle(t));
+            ListEvent::Insert(range) => self.activate_setting(rows[*range.start()], true),
+            ListEvent::Leave(dir @ (Leave::Left | Leave::Right)) => {
+                if let Some(row @ SettingsRow::Setting(_)) = current {
+                    self.activate_setting(row, dir == Leave::Right);
                 }
             }
             ListEvent::Leave(Leave::Escape) => self.tab = Tab::Calculator,
@@ -91,14 +95,13 @@ impl App {
         }
     }
 
-    fn activate_setting(&mut self, row: SettingsRow) {
+    fn activate_setting(&mut self, row: SettingsRow, forward: bool) {
         match row {
-            SettingsRow::Toggle(t) => {
-                self.settings.flip(t);
-                self.env.set_complex(self.settings.complex_numbers);
-                self.save_settings();
-                let state = if self.settings.get(t) { "on" } else { "off" };
-                self.set_status(format!("{}: {state}", t.label()));
+            SettingsRow::Setting(setting) => {
+                self.settings.step(setting, forward);
+                self.settings_changed();
+                let message = self.setting_message(setting);
+                self.set_status(message);
             }
             SettingsRow::Hotkey(action) => {
                 self.settings_view.capturing = Some(action);
@@ -129,6 +132,52 @@ impl App {
             }
             Err(e) => self.set_error(e),
         }
+    }
+
+    pub(super) fn apply_config(&mut self, request: ConfigRequest) -> Answer {
+        let (key, value) = match request {
+            ConfigRequest::Show => return Answer::Message(self.settings.overview()),
+            ConfigRequest::Cycle(key) => (key, None),
+            ConfigRequest::Set(key, value) => (key, Some(value)),
+        };
+        let Some(setting) = Setting::from_key(&key) else {
+            let known: Vec<&str> = Setting::ALL.iter().map(|s| s.key()).collect();
+            return Answer::Error(format!(
+                "Unknown setting '{key}'; available: {}",
+                known.join(", ")
+            ));
+        };
+        let result = match value {
+            None => {
+                self.settings.step(setting, true);
+                Ok(())
+            }
+            Some(value) => self.settings.set_value(setting, &value),
+        };
+        match result {
+            Ok(()) => {
+                self.settings_changed();
+                Answer::Message(self.setting_message(setting))
+            }
+            Err(e) => Answer::Error(e),
+        }
+    }
+
+    fn setting_message(&self, setting: Setting) -> String {
+        let mut message = format!(
+            "{}: {}",
+            setting.label(),
+            self.settings.value_label(setting)
+        );
+        if let Some(reason) = self.settings.inactive_reason(setting) {
+            message.push_str(&format!(" ({reason})"));
+        }
+        message
+    }
+
+    pub(super) fn settings_changed(&mut self) {
+        self.env.set_complex(self.settings.complex_numbers);
+        self.save_settings();
     }
 
     pub(super) fn save_settings(&mut self) {

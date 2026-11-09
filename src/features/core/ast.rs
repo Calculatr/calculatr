@@ -1,4 +1,3 @@
-// use num_complex::Complex;
 use serde::{Deserialize, Serialize};
 
 use super::number::Rational;
@@ -58,6 +57,8 @@ pub enum Expr {
     Pow(Box<Expr>, Box<Expr>),
     Call(String, Vec<Expr>),
     Eq(Box<Expr>, Box<Expr>),
+    Unit(String),
+    Convert(Box<Expr>, Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -77,14 +78,15 @@ impl Expr {
 
     pub fn children(&self) -> Vec<&Expr> {
         match self {
-            Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) => vec![],
+            Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => vec![],
             Expr::Neg(a) => vec![a],
             Expr::Add(a, b)
             | Expr::Sub(a, b)
             | Expr::Mul(a, b)
             | Expr::Div(a, b)
             | Expr::Pow(a, b)
-            | Expr::Eq(a, b) => vec![a, b],
+            | Expr::Eq(a, b)
+            | Expr::Convert(a, b) => vec![a, b],
             Expr::Call(_, args) => args.iter().collect(),
         }
     }
@@ -92,7 +94,7 @@ impl Expr {
     pub fn try_map<E>(&self, f: &mut impl FnMut(&Expr) -> Result<Expr, E>) -> Result<Expr, E> {
         let bx = |e: Expr| Box::new(e);
         Ok(match self {
-            Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) => self.clone(),
+            Expr::Num(_) | Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => self.clone(),
             Expr::Neg(a) => Expr::Neg(bx(f(a)?)),
             Expr::Add(a, b) => Expr::Add(bx(f(a)?), bx(f(b)?)),
             Expr::Sub(a, b) => Expr::Sub(bx(f(a)?), bx(f(b)?)),
@@ -100,6 +102,7 @@ impl Expr {
             Expr::Div(a, b) => Expr::Div(bx(f(a)?), bx(f(b)?)),
             Expr::Pow(a, b) => Expr::Pow(bx(f(a)?), bx(f(b)?)),
             Expr::Eq(a, b) => Expr::Eq(bx(f(a)?), bx(f(b)?)),
+            Expr::Convert(a, u) => Expr::Convert(bx(f(a)?), u.clone()),
             Expr::Call(n, args) => Expr::Call(
                 n.clone(),
                 args.iter().map(&mut *f).collect::<Result<Vec<_>, E>>()?,
@@ -109,7 +112,7 @@ impl Expr {
 
     pub fn is_closed(&self) -> bool {
         match self {
-            Expr::Variable(_) => false,
+            Expr::Variable(_) | Expr::Unit(_) => false,
             _ => self.children().into_iter().all(Expr::is_closed),
         }
     }
@@ -118,6 +121,20 @@ impl Expr {
         match self {
             Expr::Variable(n) => n == name,
             _ => self.children().into_iter().any(|c| c.mentions(name)),
+        }
+    }
+
+    pub fn has_units(&self) -> bool {
+        match self {
+            Expr::Unit(_) => true,
+            _ => self.children().into_iter().any(Expr::has_units),
+        }
+    }
+
+    pub fn unit_atoms(&self, out: &mut Vec<String>) {
+        match self {
+            Expr::Unit(s) => out.push(s.clone()),
+            _ => self.children().into_iter().for_each(|c| c.unit_atoms(out)),
         }
     }
 
