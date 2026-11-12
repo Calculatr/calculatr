@@ -207,7 +207,10 @@ fn emit_inner(e: &Expr, style: Style, out: &mut String) {
         }
         out.push_str("cstr(frac(");
         if coef.numer().abs() != 1.into() {
-            out.push_str(&format!("cnum({})", coef.numer().abs()));
+            out.push_str(&format!(
+                "cnum({})",
+                number::int_text(&coef.numer().abs(), false)
+            ));
             out.push_str(if leads_with_number(rest, style, 2) {
                 " cop(times) "
             } else {
@@ -215,7 +218,10 @@ fn emit_inner(e: &Expr, style: Style, out: &mut String) {
             });
         }
         emit(rest, style, 2, out);
-        out.push_str(&format!(", cnum({})))", coef.denom()));
+        out.push_str(&format!(
+            ", cnum({})))",
+            number::int_text(coef.denom(), false)
+        ));
         return;
     }
 
@@ -363,8 +369,8 @@ fn emit_number(r: &Rational, style: Style, out: &mut String) {
         let magnitude = r.abs();
         out.push_str(&format!(
             "cstr(frac(cnum({}), cnum({})))",
-            magnitude.numer(),
-            magnitude.denom()
+            number::int_text(magnitude.numer(), false),
+            number::int_text(magnitude.denom(), false)
         ));
         return;
     }

@@ -70,6 +70,8 @@ pub struct App {
     pub(crate) clipboard: Clipboard,
     persist: bool,
     cursor_shape: Option<SetCursorStyle>,
+    pending: Option<String>,
+    defer_eval: bool,
 }
 
 impl App {
@@ -80,6 +82,7 @@ impl App {
             persistence::load_state(),
         );
         app.persist = true;
+        app.defer_eval = true;
         app.clipboard = Clipboard::system();
         app
     }
@@ -113,6 +116,8 @@ impl App {
             clipboard: Clipboard::disabled(),
             persist: false,
             cursor_shape: None,
+            pending: None,
+            defer_eval: false,
         }
     }
 
@@ -226,6 +231,13 @@ pub fn run() -> io::Result<()> {
             terminal.draw(|f| tui::draw(f, &mut app))?;
             app.sync_cursor_shape(&mut stdout())?;
             dirty = false;
+        }
+
+        if let Some(input) = app.pending.take() {
+            app.status = None;
+            app.evaluate_and_record(&input);
+            dirty = true;
+            continue;
         }
 
         if event::poll(Duration::from_millis(250))? {

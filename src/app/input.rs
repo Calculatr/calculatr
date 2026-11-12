@@ -155,19 +155,25 @@ impl App {
         }
 
         let text = self.editor.buffer.text();
-        if text.trim().is_empty() {
-            if let Some(last) = self.history.last().map(|e| e.input.clone()) {
-                self.evaluate_and_record(&last);
-            }
+        let input = if text.trim().is_empty() {
+            self.history.last().map(|e| e.input.clone())
         } else {
-            self.evaluate_and_record(&text);
+            Some(text)
+        };
+        if let Some(input) = input {
+            if self.defer_eval {
+                self.set_status("Calculating …");
+                self.pending = Some(input);
+            } else {
+                self.evaluate_and_record(&input);
+            }
         }
         self.editor.reset_after_submit();
         self.history_nav.reset();
         self.history_nav.cursor = None;
     }
 
-    fn evaluate_and_record(&mut self, input: &str) {
+    pub(super) fn evaluate_and_record(&mut self, input: &str) {
         let answer = match core::evaluate(&mut self.env, input, self.render_mode) {
             Evaluation::ClearHistory => {
                 self.history.clear();

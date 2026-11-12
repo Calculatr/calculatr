@@ -51,7 +51,14 @@ pub fn insert_text_with(
 }
 
 pub fn is_selectable(history: &[HistoryEntry], line: usize) -> bool {
-    insert_text(history, line).is_some()
+    let (entry, kind) = locate(line);
+    let Some(entry) = history.get(entry) else {
+        return false;
+    };
+    match kind {
+        LineKind::Input => !entry.input.trim().is_empty(),
+        LineKind::Result => matches!(entry.answer, Answer::Value { .. }),
+    }
 }
 
 pub fn remove_lines(history: &mut Vec<HistoryEntry>, lines: RangeInclusive<usize>) {

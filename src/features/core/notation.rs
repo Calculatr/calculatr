@@ -386,7 +386,7 @@ fn pow10(e: i32) -> Rational {
 }
 
 fn floor_log10(a: &Rational) -> i32 {
-    let digits = |n: &BigInt| n.to_string().len() as i32;
+    let digits = |n: &BigInt| number::digit_count(n) as i32;
     let e = digits(a.numer()) - digits(a.denom());
     if *a < pow10(e) { e - 1 } else { e }
 }

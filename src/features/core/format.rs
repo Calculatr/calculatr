@@ -58,8 +58,12 @@ pub fn fmt_expr(e: &Expr, style: impl Into<Style>) -> String {
 pub fn fmt_rational(r: &Rational, style: Style) -> String {
     match style.fmt {
         NumFmt::Decimal => style.numbers.format(r).render(style.parseable),
-        NumFmt::Fraction if number::is_integer(r) => r.numer().to_string(),
-        NumFmt::Fraction => format!("{}/{}", r.numer(), r.denom()),
+        NumFmt::Fraction if number::is_integer(r) => number::int_text(r.numer(), style.parseable),
+        NumFmt::Fraction => format!(
+            "{}/{}",
+            number::int_text(r.numer(), style.parseable),
+            number::int_text(r.denom(), style.parseable)
+        ),
     }
 }
 
@@ -158,12 +162,12 @@ fn write_inner(e: &Expr, style: Style, out: &mut String) {
             out.push('-');
         }
         if !magnitude_one {
-            out.push_str(&p.abs().to_string());
+            out.push_str(&number::int_text(&p.abs(), style.parseable));
             out.push('*');
         }
         write(rest, style, 2, out);
         out.push('/');
-        out.push_str(&q.to_string());
+        out.push_str(&number::int_text(q, style.parseable));
         return;
     }
 

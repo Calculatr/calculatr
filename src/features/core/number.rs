@@ -97,10 +97,36 @@ pub fn to_decimal_string(r: &Rational) -> String {
     }
 }
 
+pub(crate) const MAX_DISPLAY_BITS: u64 = 1000;
+
+fn leading_digits(n: &BigInt) -> (u64, usize) {
+    let n = n.abs();
+    let approx = (n.bits().saturating_sub(1) as f64 * std::f64::consts::LOG10_2) as u32;
+    let shift = approx.saturating_sub(16);
+    let head = (&n / BigInt::from(10u32).pow(shift)).to_string(); // 17–18 Ziffern
+    let lead = head.get(..14).and_then(|s| s.parse().ok()).unwrap_or(0);
+    (lead, head.len() + shift as usize)
+}
+
+pub(crate) fn digit_count(n: &BigInt) -> usize {
+    if n.bits() <= 128 {
+        n.abs().to_string().len()
+    } else {
+        leading_digits(n).1
+    }
+}
+
+pub fn int_text(n: &BigInt, exact: bool) -> String {
+    if exact || n.bits() <= MAX_DISPLAY_BITS {
+        n.to_string()
+    } else {
+        fmt_huge_integer(n)
+    }
+}
+
 fn fmt_huge_integer(n: &BigInt) -> String {
-    let digits = n.abs().to_string();
-    let mut exponent = digits.len() - 1;
-    let lead: u64 = digits[..14].parse().unwrap_or(0);
+    let (lead, len) = leading_digits(n);
+    let mut exponent = len - 1;
     let mut mantissa = (lead + 5) / 10;
     if mantissa >= 10_000_000_000_000 {
         mantissa /= 10;
@@ -145,11 +171,18 @@ pub fn factorial(r: &Rational) -> Option<Rational> {
     if n > MAX_FACTORIAL {
         return None;
     }
-    let mut acc = BigInt::from(1u32);
-    for i in 2..=n {
-        acc *= i;
+    Some(Rational::from_integer(range_product(2, n)))
+}
+
+fn range_product(lo: u64, hi: u64) -> BigInt {
+    if lo > hi {
+        return BigInt::one();
     }
-    Some(Rational::from_integer(acc))
+    if hi - lo < 32 {
+        return (lo..=hi).fold(BigInt::one(), |acc, i| acc * i);
+    }
+    let mid = lo + (hi - lo) / 2;
+    range_product(lo, mid) * range_product(mid + 1, hi)
 }
 
 pub fn pow_int(base: &Rational, exp: &Rational) -> Option<Rational> {
