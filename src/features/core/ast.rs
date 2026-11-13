@@ -74,6 +74,22 @@ impl Expr {
         Expr::Num(super::number::int(n))
     }
 
+    pub fn num_bits(&self) -> u64 {
+        match self {
+            Expr::Num(r) => r.numer().bits() + r.denom().bits(),
+            Expr::Constant(_) | Expr::Variable(_) | Expr::Unit(_) => 0,
+            Expr::Neg(a) | Expr::Fact(a) => a.num_bits(),
+            Expr::Add(a, b)
+            | Expr::Sub(a, b)
+            | Expr::Mul(a, b)
+            | Expr::Div(a, b)
+            | Expr::Pow(a, b)
+            | Expr::Eq(a, b)
+            | Expr::Convert(a, b) => a.num_bits().saturating_add(b.num_bits()),
+            Expr::Call(_, args) => args.iter().map(Expr::num_bits).fold(0, u64::saturating_add),
+        }
+    }
+
     pub fn bin(self, op: fn(Box<Expr>, Box<Expr>) -> Expr, rhs: Expr) -> Expr {
         op(Box::new(self), Box::new(rhs))
     }

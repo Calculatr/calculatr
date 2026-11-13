@@ -21,7 +21,7 @@ use crate::features::editor::{Editor, ListNav, Mode};
 use crate::features::history::HistoryEntry;
 use crate::features::persistence::{self, SavedState};
 use crate::features::settings::Settings;
-use crate::features::tui::{self, images::ImageCache, theme::Theme};
+use crate::features::tui::{self, display::DisplayCache, images::ImageCache, theme::Theme};
 use crate::features::variables::{self, TreeRow};
 
 pub use settings_view::{SettingsRow, SettingsView, settings_rows};
@@ -66,6 +66,7 @@ pub struct App {
     pub theme: Theme,
     pub picker: Picker,
     pub images: ImageCache,
+    pub display: DisplayCache,
     pub should_quit: bool,
     pub(crate) clipboard: Clipboard,
     persist: bool,
@@ -83,6 +84,7 @@ impl App {
         );
         app.persist = true;
         app.defer_eval = true;
+        app.display.enable_background();
         app.clipboard = Clipboard::system();
         app
     }
@@ -112,6 +114,7 @@ impl App {
             theme: Theme::cyberpunk(),
             picker,
             images: ImageCache::new(),
+            display: DisplayCache::new(),
             should_quit: false,
             clipboard: Clipboard::disabled(),
             persist: false,
@@ -240,7 +243,12 @@ pub fn run() -> io::Result<()> {
             continue;
         }
 
-        if event::poll(Duration::from_millis(250))? {
+        let timeout = if app.display.is_busy() {
+            Duration::from_millis(15)
+        } else {
+            Duration::from_millis(250)
+        };
+        if event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     app.on_key(key);
@@ -254,6 +262,7 @@ pub fn run() -> io::Result<()> {
                 _ => {}
             }
         }
+        dirty |= app.display.poll();
         dirty |= app.expire_status();
     }
 

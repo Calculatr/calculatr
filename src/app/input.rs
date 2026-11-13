@@ -182,10 +182,7 @@ impl App {
             Evaluation::Answer(answer) => answer,
             Evaluation::Configure(request) => self.apply_config(request),
         };
-        self.history.push(HistoryEntry {
-            input: input.trim().to_string(),
-            answer,
-        });
+        self.history.push(HistoryEntry::new(input.trim(), answer));
         self.prune_collapsed_sections();
     }
 

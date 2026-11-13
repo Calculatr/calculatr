@@ -67,7 +67,7 @@ pub fn simplify(e: &Expr) -> Result<Expr, String> {
 
 fn scale(e: Expr, coefficient: Rational) -> Expr {
     match e {
-        Expr::Num(r) => Expr::Num(r * coefficient),
+        Expr::Num(r) => Expr::Num(number::mul(&r, &coefficient)),
         Expr::Add(..) | Expr::Sub(..) => sum(vec![(coefficient, e)]),
         other => product(Expr::Num(coefficient), other),
     }
@@ -90,10 +90,10 @@ fn sum(items: Vec<(Rational, Expr)>) -> Expr {
                 collect(*b, -sign, terms, constant);
             }
             Expr::Neg(a) => collect(*a, -sign, terms, constant),
-            Expr::Num(r) => *constant += sign * r,
+            Expr::Num(r) => *constant = number::add(constant, &number::mul(&sign, &r)),
             Expr::Mul(a, b) if matches!(*a, Expr::Num(_)) => {
                 let Expr::Num(c) = *a else { unreachable!() };
-                push_term(terms, sign * c, *b);
+                push_term(terms, number::mul(&sign, &c), *b);
             }
             other => push_term(terms, sign, other),
         }
@@ -101,7 +101,7 @@ fn sum(items: Vec<(Rational, Expr)>) -> Expr {
 
     fn push_term(terms: &mut Vec<(Rational, Expr)>, coefficient: Rational, base: Expr) {
         match terms.iter_mut().find(|(_, b)| *b == base) {
-            Some((c, _)) => *c += coefficient,
+            Some((c, _)) => *c = number::add(c, &coefficient),
             None => terms.push((coefficient, base)),
         }
     }
@@ -150,7 +150,7 @@ fn product(a: Expr, b: Expr) -> Expr {
                 *coefficient = -coefficient.clone();
                 collect(*a, coefficient, factors);
             }
-            Expr::Num(r) => *coefficient *= r,
+            Expr::Num(r) => *coefficient = number::mul(coefficient, &r),
             Expr::Pow(base, exp) if matches!(&*exp, Expr::Num(n) if number::is_integer(n)) => {
                 let Expr::Num(n) = *exp else { unreachable!() };
                 push_factor(factors, *base, n);

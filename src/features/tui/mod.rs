@@ -1,4 +1,5 @@
 mod calculator;
+pub mod display;
 pub mod highlighter;
 pub mod images;
 mod settings_view;
