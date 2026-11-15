@@ -31,6 +31,7 @@ pub fn simplify(e: &Expr) -> Result<Expr, String> {
                 _ => Expr::Fact(Box::new(inner)),
             }
         }
+        Expr::Prc(a) => quotient(simplify(a)?, Expr::num(100))?,
         Expr::Add(a, b) => sum(vec![
             (Rational::one(), simplify(a)?),
             (Rational::one(), simplify(b)?),
@@ -289,6 +290,7 @@ pub fn eval_f64(e: &Expr) -> Result<f64, String> {
             }
             check(acc, [v, 0.0], "Factorial")
         }
+        Expr::Prc(a) => Ok(eval_f64(a)? / 100.0),
         Expr::Add(a, b) => {
             let (l, r) = both(a, b)?;
             check(l + r, [l, r], "Sum")
@@ -433,6 +435,7 @@ pub fn eval_c64(e: &Expr) -> Result<Complex64, String> {
                 "Factorial",
             )
         }
+        Expr::Prc(a) => Ok(eval_c64(a)? / 100.0),
         Expr::Add(a, b) => {
             let (l, r) = both(a, b)?;
             check(l + r, [l, r], "Sum")

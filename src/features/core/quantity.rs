@@ -31,6 +31,12 @@ pub fn split(e: &Expr) -> Result<Option<(Expr, Dimension)>, String> {
             }
             (Expr::Fact(bx(s)), Dimension::NONE)
         }
+        Expr::Prc(a) => {
+            let Some((s, d)) = split(a)? else {
+                return Ok(None);
+            };
+            (Expr::Prc(bx(s)), d)
+        }
         Expr::Add(a, b) | Expr::Sub(a, b) => {
             let (Some((sa, da)), Some((sb, db))) = (split(a)?, split(b)?) else {
                 return Ok(None);

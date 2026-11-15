@@ -136,7 +136,7 @@ fn leads_with_number(e: &Expr, style: Style, min_prec: u8) -> bool {
     }
     match e {
         Expr::Num(_) | Expr::Neg(_) => true,
-        Expr::Fact(a) => leads_with_number(a, style, 0),
+        Expr::Fact(a) | Expr::Prc(a) => leads_with_number(a, style, 0),
         Expr::Add(a, _)
         | Expr::Sub(a, _)
         | Expr::Mul(a, _)
@@ -239,6 +239,10 @@ fn emit_inner(e: &Expr, style: Style, out: &mut String) {
         Expr::Fact(a) => {
             emit(a, style, 5, out);
             out.push_str(" cstr(!)");
+        }
+        Expr::Prc(a) => {
+            emit(a, style, 5, out);
+            out.push_str(" cstr(%)");
         }
         Expr::Add(a, b) => {
             emit(a, style, 1, out);

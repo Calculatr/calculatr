@@ -84,7 +84,7 @@ pub(crate) fn prec(e: &Expr, style: Style) -> u8 {
         Expr::Mul(..) | Expr::Div(..) => 2,
         Expr::Neg(..) => 3,
         Expr::Pow(..) => 4,
-        Expr::Fact(..) => 5,
+        Expr::Fact(..) | Expr::Prc(..) => 5,
         Expr::Num(r) => {
             let fraction = style.fmt == NumFmt::Fraction && !number::is_integer(r);
             let product = style
@@ -184,6 +184,10 @@ fn write_inner(e: &Expr, style: Style, out: &mut String) {
         Expr::Fact(a) => {
             write(a, style, 5, out);
             out.push('!');
+        }
+        Expr::Prc(a) => {
+            write(a, style, 5, out);
+            out.push('%');
         }
         Expr::Add(a, b) => {
             write(a, style, 1, out);

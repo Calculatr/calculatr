@@ -120,6 +120,9 @@ impl<'a> Parser<'a> {
             } else if self.match_char(b'/') {
                 let right = self.parse_unary()?;
                 left = left.bin(Expr::Div, right);
+            } else if self.match_char(b'%') {
+                let right = self.parse_unary()?;
+                left = Expr::Call("mod".into(), vec![left, right]);
             } else if self.starts_implicit_factor() {
                 let right = self.parse_unary()?;
                 left = left.bin(Expr::Mul, right);
@@ -137,11 +140,12 @@ impl<'a> Parser<'a> {
         if self.match_char(b'+') {
             return self.parse_unary();
         }
-        self.parse_postfix()
+        self.parse_power()
     }
 
     fn parse_power(&mut self) -> Result<Expr, String> {
-        let base = self.parse_primary()?;
+        let primary = self.parse_primary()?;
+        let base = self.parse_postfix(primary)?;
         self.skip_whitespace();
         if self.match_char(b'^') {
             let exp = self.parse_unary()?;
@@ -150,13 +154,15 @@ impl<'a> Parser<'a> {
         Ok(base)
     }
 
-    fn parse_postfix(&mut self) -> Result<Expr, String> {
-        let mut base = self.parse_power()?;
+    fn parse_postfix(&mut self, mut base: Expr) -> Result<Expr, String> {
         loop {
             self.skip_whitespace();
             if self.peek() == Some(b'!') && self.chars.get(self.pos + 1) != Some(&b'=') {
                 self.pos += 1;
                 base = Expr::Fact(Box::new(base));
+            } else if self.peek() == Some(b'%') && !self.operand_follows(self.pos + 1) {
+                self.pos += 1;
+                base = Expr::Prc(Box::new(base));
             } else {
                 break;
             }
@@ -263,6 +269,15 @@ impl<'a> Parser<'a> {
     fn starts_implicit_factor(&self) -> bool {
         self.peek()
             .is_some_and(|b| b.is_ascii_alphabetic() || b == b'(')
+    }
+
+    fn operand_follows(&self, mut pos: usize) -> bool {
+        while self.chars.get(pos).is_some_and(|b| b.is_ascii_whitespace()) {
+            pos += 1;
+        }
+        self.chars
+            .get(pos)
+            .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'.' || b == b'(')
     }
 
     fn peek(&self) -> Option<u8> {
