@@ -21,7 +21,7 @@ use crate::features::editor::{Editor, ListNav, Mode};
 use crate::features::history::HistoryEntry;
 use crate::features::persistence::{self, SavedState};
 use crate::features::settings::Settings;
-use crate::features::tui::{self, images::ImageCache, theme::Theme};
+use crate::features::tui::{self, display::DisplayCache, images::ImageCache, theme::Theme};
 use crate::features::variables::{self, TreeRow};
 
 pub use settings_view::{SettingsRow, SettingsView, settings_rows};
@@ -66,10 +66,13 @@ pub struct App {
     pub theme: Theme,
     pub picker: Picker,
     pub images: ImageCache,
+    pub display: DisplayCache,
     pub should_quit: bool,
     pub(crate) clipboard: Clipboard,
     persist: bool,
     cursor_shape: Option<SetCursorStyle>,
+    pending: Option<String>,
+    defer_eval: bool,
 }
 
 impl App {
@@ -80,6 +83,8 @@ impl App {
             persistence::load_state(),
         );
         app.persist = true;
+        app.defer_eval = true;
+        app.display.enable_background();
         app.clipboard = Clipboard::system();
         app
     }
@@ -109,10 +114,13 @@ impl App {
             theme: Theme::cyberpunk(),
             picker,
             images: ImageCache::new(),
+            display: DisplayCache::new(),
             should_quit: false,
             clipboard: Clipboard::disabled(),
             persist: false,
             cursor_shape: None,
+            pending: None,
+            defer_eval: false,
         }
     }
 
@@ -228,7 +236,19 @@ pub fn run() -> io::Result<()> {
             dirty = false;
         }
 
-        if event::poll(Duration::from_millis(250))? {
+        if let Some(input) = app.pending.take() {
+            app.status = None;
+            app.evaluate_and_record(&input);
+            dirty = true;
+            continue;
+        }
+
+        let timeout = if app.display.is_busy() {
+            Duration::from_millis(15)
+        } else {
+            Duration::from_millis(250)
+        };
+        if event::poll(timeout)? {
             match event::read()? {
                 Event::Key(key) if key.kind != KeyEventKind::Release => {
                     app.on_key(key);
@@ -242,6 +262,7 @@ pub fn run() -> io::Result<()> {
                 _ => {}
             }
         }
+        dirty |= app.display.poll();
         dirty |= app.expire_status();
     }
 

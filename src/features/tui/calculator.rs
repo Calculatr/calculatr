@@ -7,13 +7,12 @@ use ratatui::{
 };
 use ratatui_image::StatefulImage;
 
+use super::display::{DisplayKey, View};
 use super::highlighter::tokenize;
 use super::images::fade_level;
 use super::theme::{LineRole, Theme, fade};
-use super::typst::markup;
 use crate::app::{App, Focus};
 use crate::features::core::number::NumFmt;
-use crate::features::core::parser::parse_stmt;
 use crate::features::core::{Answer, RenderMode, completions};
 use crate::features::editor::Mode;
 use crate::features::history::{self, LineKind};
@@ -55,19 +54,28 @@ struct RowImage {
     cols: u16,
 }
 
-fn typst_source(app: &App, line: usize) -> Option<String> {
+fn display_key(app: &App) -> DisplayKey {
+    DisplayKey {
+        numbers: app.settings.number_format,
+        typst: app.settings.typst_rendering,
+    }
+}
+
+fn typst_source(app: &mut App, line: usize) -> Option<String> {
     if !app.settings.typst_rendering {
         return None;
     }
     let (idx, kind) = history::locate(line);
     let entry = app.history.get(idx)?;
     match kind {
-        LineKind::Input => parse_stmt(&entry.input)
-            .ok()
-            .map(|stmt| markup::input_source(&stmt, &app.theme)),
-        LineKind::Result => {
-            markup::answer_source(&entry.answer, &app.theme, &app.settings.number_format)
-        }
+        LineKind::Input => app
+            .display
+            .input_source(entry, &app.theme)
+            .map(str::to_owned),
+        LineKind::Result => match app.display.result(entry, display_key(app), &app.theme) {
+            View::Ready(r) => r.typst.clone(),
+            View::Stale(_) | View::Pending => None,
+        },
     }
 }
 
@@ -111,7 +119,8 @@ fn brightness(row: usize, num_rows: usize) -> f32 {
     }
 }
 
-fn line_pieces(app: &App, line: usize) -> Vec<(String, Color)> {
+fn line_pieces(app: &mut App, line: usize) -> Vec<(String, Color)> {
+    let key = display_key(app);
     let theme = &app.theme;
     let (idx, kind) = history::locate(line);
     let Some(entry) = app.history.get(idx) else {
@@ -130,7 +139,11 @@ fn line_pieces(app: &App, line: usize) -> Vec<(String, Color)> {
                 Answer::Error(_) => theme.error,
                 Answer::Message(_) => theme.message,
             };
-            vec![(entry.answer.text_with(&app.settings.number_format), color)]
+            match app.display.result(entry, key, theme) {
+                View::Ready(r) => vec![(r.text.clone(), color)],
+                View::Stale(r) => vec![(r.text.clone(), theme.dim)],
+                View::Pending => vec![("formatting…".to_string(), theme.dim)],
+            }
         }
     }
 }
@@ -191,6 +204,7 @@ fn draw_history(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     }
 
+    app.display.retain(&app.history);
     let total = history::line_count(&app.history);
     let cursor = if focused {
         app.history_nav.cursor

@@ -335,10 +335,10 @@ evaluation, simplification, Typst output and autocompletion, so adding a functio
 - tbd
 
 **Operators and syntax**
-- [ ] `!` (factorial)
-- [ ] `%` (modulo)
-- [ ] percent (`5%`)
-- [ ] scientific notation (`1e-3`)
+- [X] `!` (factorial)
+- [X] `%` (modulo)
+- [X] percent (`5%`)
+- [X] scientific notation (`1e-3`)
 - [ ] comparison (`<`, `>`, `<=`, `>=`, `==`)
 - [ ] hex / binary / octal literals
 - [ ] user-defined functions (`f(x) := x^2`)

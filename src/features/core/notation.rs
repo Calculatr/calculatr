@@ -139,7 +139,7 @@ impl NumberFormat {
             Notation::Standard => self.standard(&a),
             Notation::Power | Notation::E => {
                 let step = self.exponent_step.step();
-                let (m, exp) = scale(&denoise(&a), self.decimal_places, |e| {
+                let (m, exp) = scale(denoise_split(&a), self.decimal_places, |e| {
                     Some(e.div_euclid(step) * step)
                 })
                 .expect("every exponent is representable");
@@ -169,7 +169,7 @@ impl NumberFormat {
                 None => FormattedNumber::plain(false, auto),
             },
             Some(_) if auto_exponent => {
-                let (m, exp) = scale(&denoise(a), self.decimal_places, Some)
+                let (m, exp) = scale(denoise_split(a), self.decimal_places, Some)
                     .expect("every exponent is representable");
                 let scale = if exp == 0 {
                     Scale::None
@@ -202,8 +202,8 @@ impl NumberFormat {
                     .unwrap_or(SI_MIN_EXPONENT),
             )
         };
-        let clean = denoise(a);
-        match scale(&clean, self.decimal_places, choose) {
+        let clean = denoise_split(a);
+        match scale(clean.clone(), self.decimal_places, choose) {
             Some((m, exp)) => {
                 let scale = match prefix_for(exp) {
                     Some(p) => Scale::Prefix(p),
@@ -212,7 +212,7 @@ impl NumberFormat {
                 FormattedNumber::new(false, decimal_string(&m), scale)
             }
             None => {
-                let (m, exp) = scale(&clean, self.decimal_places, |e| Some(e.div_euclid(3) * 3))
+                let (m, exp) = scale(clean, self.decimal_places, |e| Some(e.div_euclid(3) * 3))
                     .expect("every exponent is representable");
                 FormattedNumber::new(false, decimal_string(&m), Scale::E(exp))
             }
@@ -385,10 +385,19 @@ fn pow10(e: i32) -> Rational {
     }
 }
 
+fn pow10_int(e: i32) -> BigInt {
+    BigInt::from(10u32).pow(e.unsigned_abs())
+}
+
 fn floor_log10(a: &Rational) -> i32 {
-    let digits = |n: &BigInt| n.to_string().len() as i32;
+    let digits = |n: &BigInt| number::digit_count(n) as i32;
     let e = digits(a.numer()) - digits(a.denom());
-    if *a < pow10(e) { e - 1 } else { e }
+    let below = if e >= 0 {
+        *a.numer() < a.denom() * pow10_int(e)
+    } else {
+        a.numer() * pow10_int(e) < *a.denom()
+    };
+    if below { e - 1 } else { e }
 }
 
 fn round_to(a: &Rational, places: i32) -> Rational {
@@ -397,25 +406,45 @@ fn round_to(a: &Rational, places: i32) -> Rational {
     (a * &s + half).floor() / s
 }
 
-fn denoise(a: &Rational) -> Rational {
+fn denoise_split(a: &Rational) -> (Rational, i32) {
+    if a.is_zero() {
+        return (a.clone(), 0);
+    }
+    let e = floor_log10(a);
     let exact =
         a.numer().bits() <= 128 && number::decimal_digits(a).is_some_and(|d| d <= MAX_EXACT_DIGITS);
-    if exact || a.is_zero() {
-        a.clone()
+    if exact {
+        return (a / pow10(e), e);
+    }
+    let shift = e - (NOISY_SIGNIFICANT_DIGITS - 1);
+    let (num, den) = if shift >= 0 {
+        (a.numer().clone(), a.denom() * pow10_int(shift))
     } else {
-        round_to(a, NOISY_SIGNIFICANT_DIGITS - 1 - floor_log10(a))
+        (a.numer() * pow10_int(shift), a.denom().clone())
+    };
+    let q = (num * 2 + &den) / (den * 2);
+    let m = Rational::new(q, pow10_int(NOISY_SIGNIFICANT_DIGITS - 1));
+    if m >= Rational::from_integer(10.into()) {
+        (m / Rational::from_integer(10.into()), e + 1)
+    } else {
+        (m, e)
     }
 }
 
+fn denoise(a: &Rational) -> Rational {
+    let (m, e) = denoise_split(a);
+    m * pow10(e)
+}
+
 fn scale(
-    a: &Rational,
+    value: (Rational, i32),
     places: Option<u8>,
     choose: impl Fn(i32) -> Option<i32>,
 ) -> Option<(Rational, i32)> {
-    let mut value = a.clone();
-    let mut exp = choose(floor_log10(&value))?;
+    let (mut m, mut e) = value;
+    let mut exp = choose(e)?;
     for _ in 0..3 {
-        let mantissa = &value / pow10(exp);
+        let mantissa = &m * pow10(e - exp);
         let mantissa = match places {
             Some(p) => round_to(&mantissa, i32::from(p)),
             None => mantissa,
@@ -423,15 +452,16 @@ fn scale(
         if mantissa.is_zero() {
             return Some((mantissa, 0));
         }
-        let rounded = &mantissa * pow10(exp);
-        let next = choose(floor_log10(&rounded))?;
+        let ml = floor_log10(&mantissa);
+        let next = choose(ml + exp)?;
         if next == exp {
             return Some((mantissa, exp));
         }
-        value = rounded;
+        m = &mantissa / pow10(ml);
+        e = ml + exp;
         exp = next;
     }
-    Some((&value / pow10(exp), exp))
+    Some((&m * pow10(e - exp), exp))
 }
 
 fn decimal_string(r: &Rational) -> String {

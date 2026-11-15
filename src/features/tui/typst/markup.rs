@@ -136,6 +136,7 @@ fn leads_with_number(e: &Expr, style: Style, min_prec: u8) -> bool {
     }
     match e {
         Expr::Num(_) | Expr::Neg(_) => true,
+        Expr::Fact(a) | Expr::Prc(a) => leads_with_number(a, style, 0),
         Expr::Add(a, _)
         | Expr::Sub(a, _)
         | Expr::Mul(a, _)
@@ -206,7 +207,10 @@ fn emit_inner(e: &Expr, style: Style, out: &mut String) {
         }
         out.push_str("cstr(frac(");
         if coef.numer().abs() != 1.into() {
-            out.push_str(&format!("cnum({})", coef.numer().abs()));
+            out.push_str(&format!(
+                "cnum({})",
+                number::int_text(&coef.numer().abs(), false)
+            ));
             out.push_str(if leads_with_number(rest, style, 2) {
                 " cop(times) "
             } else {
@@ -214,7 +218,10 @@ fn emit_inner(e: &Expr, style: Style, out: &mut String) {
             });
         }
         emit(rest, style, 2, out);
-        out.push_str(&format!(", cnum({})))", coef.denom()));
+        out.push_str(&format!(
+            ", cnum({})))",
+            number::int_text(coef.denom(), false)
+        ));
         return;
     }
 
@@ -228,6 +235,14 @@ fn emit_inner(e: &Expr, style: Style, out: &mut String) {
             let force =
                 matches!(&**a, Expr::Neg(_)) || matches!(&**a, Expr::Num(r) if r.is_negative());
             emit(a, style, if force { 4 } else { 2 }, out);
+        }
+        Expr::Fact(a) => {
+            emit(a, style, 5, out);
+            out.push_str(" cstr(!)");
+        }
+        Expr::Prc(a) => {
+            emit(a, style, 5, out);
+            out.push_str(" cstr(%)");
         }
         Expr::Add(a, b) => {
             emit(a, style, 1, out);
@@ -358,8 +373,8 @@ fn emit_number(r: &Rational, style: Style, out: &mut String) {
         let magnitude = r.abs();
         out.push_str(&format!(
             "cstr(frac(cnum({}), cnum({})))",
-            magnitude.numer(),
-            magnitude.denom()
+            number::int_text(magnitude.numer(), false),
+            number::int_text(magnitude.denom(), false)
         ));
         return;
     }

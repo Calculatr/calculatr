@@ -1,4 +1,5 @@
 use std::ops::RangeInclusive;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -6,10 +7,33 @@ use super::core::{Answer, NumberFormat};
 
 pub const MAX_SAVED_ENTRIES: usize = 500;
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryEntry {
     pub input: String,
     pub answer: Answer,
+    #[serde(skip, default = "next_id")]
+    pub id: u64,
+}
+
+impl HistoryEntry {
+    pub fn new(input: impl Into<String>, answer: Answer) -> Self {
+        Self {
+            input: input.into(),
+            answer,
+            id: next_id(),
+        }
+    }
+}
+
+impl PartialEq for HistoryEntry {
+    fn eq(&self, other: &Self) -> bool {
+        self.input == other.input && self.answer == other.answer
+    }
+}
+
+fn next_id() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +75,14 @@ pub fn insert_text_with(
 }
 
 pub fn is_selectable(history: &[HistoryEntry], line: usize) -> bool {
-    insert_text(history, line).is_some()
+    let (entry, kind) = locate(line);
+    let Some(entry) = history.get(entry) else {
+        return false;
+    };
+    match kind {
+        LineKind::Input => !entry.input.trim().is_empty(),
+        LineKind::Result => matches!(entry.answer, Answer::Value { .. }),
+    }
 }
 
 pub fn remove_lines(history: &mut Vec<HistoryEntry>, lines: RangeInclusive<usize>) {
@@ -69,10 +100,7 @@ mod tests {
     use crate::features::core::number::NumFmt;
 
     fn entry(input: &str, answer: Answer) -> HistoryEntry {
-        HistoryEntry {
-            input: input.into(),
-            answer,
-        }
+        HistoryEntry::new(input, answer)
     }
 
     fn sample() -> Vec<HistoryEntry> {

@@ -10,6 +10,8 @@ use super::number::{self, NumFmt};
 use super::parser::parse_stmt;
 use super::{quantity, units};
 
+pub(crate) const MAX_RESULT_BITS: u64 = 1 << 20;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenderMode {
     Decimal,
@@ -235,6 +237,9 @@ fn resolve(
     let mut exact = algebra::simplify(&body)?;
     if env.complex {
         exact = algebra::complex_exact(&exact);
+    }
+    if exact.num_bits() > MAX_RESULT_BITS {
+        return Err("Result is too large (limit is about 315,000 digits)".into());
     }
     let (value, unit) = if exact.has_units() || target.is_some() {
         separate_units(env, &body, &exact, target.as_ref())?

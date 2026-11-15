@@ -17,6 +17,55 @@ pub fn int(n: i64) -> Rational {
     Rational::from_integer(BigInt::from(n))
 }
 
+fn gcd(a: &BigInt, b: &BigInt) -> BigInt {
+    let (mut a, mut b) = (a.abs(), b.abs());
+    if a < b {
+        std::mem::swap(&mut a, &mut b);
+    }
+    while !b.is_zero() {
+        let r = &a % &b;
+        a = b;
+        b = r;
+    }
+    a
+}
+
+fn div_exact(n: &BigInt, d: &BigInt) -> BigInt {
+    if d.is_one() { n.clone() } else { n / d }
+}
+
+pub fn mul(a: &Rational, b: &Rational) -> Rational {
+    if a.is_zero() || b.is_zero() {
+        return Rational::zero();
+    }
+    if a.denom().is_one() && b.denom().is_one() {
+        return Rational::from_integer(a.numer() * b.numer());
+    }
+    let g1 = gcd(a.numer(), b.denom());
+    let g2 = gcd(b.numer(), a.denom());
+    let numer = div_exact(a.numer(), &g1) * div_exact(b.numer(), &g2);
+    let denom = div_exact(a.denom(), &g2) * div_exact(b.denom(), &g1);
+    Rational::new_raw(numer, denom)
+}
+
+pub fn add(a: &Rational, b: &Rational) -> Rational {
+    if a.denom().is_one() && b.denom().is_one() {
+        return Rational::from_integer(a.numer() + b.numer());
+    }
+    let g = gcd(a.denom(), b.denom());
+    if g.is_one() {
+        let numer = a.numer() * b.denom() + b.numer() * a.denom();
+        return Rational::new_raw(numer, a.denom() * b.denom());
+    }
+    let (ad, bd) = (a.denom() / &g, b.denom() / &g);
+    let t = a.numer() * &bd + b.numer() * &ad;
+    if t.is_zero() {
+        return Rational::zero();
+    }
+    let g2 = gcd(&t, &g);
+    Rational::new_raw(div_exact(&t, &g2), ad * div_exact(b.denom(), &g2))
+}
+
 pub fn parse_decimal(s: &str) -> Option<Rational> {
     let (int_part, frac_part) = match s.split_once('.') {
         Some((i, f)) => (i, f),
@@ -55,18 +104,20 @@ pub fn is_integer(r: &Rational) -> bool {
 }
 
 pub(crate) fn decimal_digits(r: &Rational) -> Option<u32> {
-    let mut d = r.denom().clone();
-    let (two, five) = (BigInt::from(2u32), BigInt::from(5u32));
-    let (mut twos, mut fives) = (0u32, 0u32);
-    while (&d % &two).is_zero() {
-        d /= &two;
-        twos += 1;
+    let twos = r.denom().trailing_zeros().unwrap_or(0);
+    let mut d = r.denom() >> twos;
+    let mut fives = 0u64;
+    let chunk = BigInt::from(5u64.pow(27));
+    while (&d % &chunk).is_zero() {
+        d /= &chunk;
+        fives += 27;
     }
+    let five = BigInt::from(5u32);
     while (&d % &five).is_zero() {
         d /= &five;
         fives += 1;
     }
-    d.is_one().then_some(twos.max(fives))
+    d.is_one().then_some(twos.max(fives) as u32)
 }
 
 pub(crate) const MAX_EXACT_DIGITS: u32 = 15;
@@ -93,14 +144,62 @@ pub fn to_decimal_string(r: &Rational) -> String {
             let sign = if r.is_negative() { "-" } else { "" };
             format!("{sign}{}.{}", &s[..split], &s[split..])
         }
-        _ => fmt_f64(to_f64(r)),
+        _ => match to_f64(r) {
+            v if v == 0.0 || !v.is_finite() => fmt_huge_rational(r),
+            v => fmt_f64(v),
+        },
     }
 }
 
+pub(crate) const MAX_DISPLAY_BITS: u64 = 1000;
+
+fn leading_digits(n: &BigInt) -> (u64, usize) {
+    let n = n.abs();
+    let approx = (n.bits().saturating_sub(1) as f64 * std::f64::consts::LOG10_2) as u32;
+    let shift = approx.saturating_sub(16);
+    let head = (&n / BigInt::from(10u32).pow(shift)).to_string();
+    let lead = head.get(..14).and_then(|s| s.parse().ok()).unwrap_or(0);
+    (lead, head.len() + shift as usize)
+}
+
+pub(crate) fn digit_count(n: &BigInt) -> usize {
+    if n.bits() <= 128 {
+        n.abs().to_string().len()
+    } else {
+        leading_digits(n).1
+    }
+}
+
+pub fn int_text(n: &BigInt, exact: bool) -> String {
+    if exact || n.bits() <= MAX_DISPLAY_BITS {
+        n.to_string()
+    } else {
+        fmt_huge_integer(n)
+    }
+}
+
+fn leading_digits_ratio(r: &Rational) -> (u64, i64) {
+    let (n, d) = (r.numer().abs(), r.denom());
+    let e = digit_count(&n) as i64 - digit_count(d) as i64;
+    let shift = e - 15;
+    let p = BigInt::from(10u32).pow(shift.unsigned_abs() as u32);
+    let q = if shift >= 0 { n / (d * p) } else { n * p / d };
+    let head = q.to_string();
+    let lead = head.get(..14).and_then(|s| s.parse().ok()).unwrap_or(0);
+    (lead, head.len() as i64 - 1 + shift)
+}
+
 fn fmt_huge_integer(n: &BigInt) -> String {
-    let digits = n.abs().to_string();
-    let mut exponent = digits.len() - 1;
-    let lead: u64 = digits[..14].parse().unwrap_or(0);
+    let (lead, len) = leading_digits(n);
+    fmt_sci(n.is_negative(), lead, len as i64 - 1)
+}
+
+fn fmt_huge_rational(r: &Rational) -> String {
+    let (lead, exponent) = leading_digits_ratio(r);
+    fmt_sci(r.is_negative(), lead, exponent)
+}
+
+fn fmt_sci(negative: bool, lead: u64, mut exponent: i64) -> String {
     let mut mantissa = (lead + 5) / 10;
     if mantissa >= 10_000_000_000_000 {
         mantissa /= 10;
@@ -108,7 +207,7 @@ fn fmt_huge_integer(n: &BigInt) -> String {
     }
     let m = mantissa.to_string();
     let frac = m[1..].trim_end_matches('0');
-    let sign = if n.is_negative() { "-" } else { "" };
+    let sign = if negative { "-" } else { "" };
     if frac.is_empty() {
         format!("{sign}{}e{exponent}", &m[..1])
     } else {
@@ -135,6 +234,30 @@ pub fn fmt_f64(v: f64) -> String {
     }
 }
 
+const MAX_FACTORIAL: u64 = 10_000;
+
+pub fn factorial(r: &Rational) -> Option<Rational> {
+    if !is_integer(r) || r.is_negative() {
+        return None;
+    }
+    let n = r.numer().to_u64()?;
+    if n > MAX_FACTORIAL {
+        return None;
+    }
+    Some(Rational::from_integer(range_product(2, n)))
+}
+
+fn range_product(lo: u64, hi: u64) -> BigInt {
+    if lo > hi {
+        return BigInt::one();
+    }
+    if hi - lo < 32 {
+        return (lo..=hi).fold(BigInt::one(), |acc, i| acc * i);
+    }
+    let mid = lo + (hi - lo) / 2;
+    range_product(lo, mid) * range_product(mid + 1, hi)
+}
+
 pub fn pow_int(base: &Rational, exp: &Rational) -> Option<Rational> {
     if !is_integer(exp) {
         return None;
@@ -159,11 +282,8 @@ pub fn pow_int(base: &Rational, exp: &Rational) -> Option<Rational> {
     let p = e.unsigned_abs().min(u32::MAX as u64) as u32;
     let n = base.numer().pow(p);
     let d = base.denom().pow(p);
-    Some(if e >= 0 {
-        Rational::new(n, d)
-    } else {
-        Rational::new(d, n)
-    })
+    let r = Rational::new_raw(n, d);
+    Some(if e >= 0 { r } else { r.recip() })
 }
 
 pub fn sqrt_exact(r: &Rational) -> Option<Rational> {

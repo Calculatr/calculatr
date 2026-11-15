@@ -58,8 +58,12 @@ pub fn fmt_expr(e: &Expr, style: impl Into<Style>) -> String {
 pub fn fmt_rational(r: &Rational, style: Style) -> String {
     match style.fmt {
         NumFmt::Decimal => style.numbers.format(r).render(style.parseable),
-        NumFmt::Fraction if number::is_integer(r) => r.numer().to_string(),
-        NumFmt::Fraction => format!("{}/{}", r.numer(), r.denom()),
+        NumFmt::Fraction if number::is_integer(r) => number::int_text(r.numer(), style.parseable),
+        NumFmt::Fraction => format!(
+            "{}/{}",
+            number::int_text(r.numer(), style.parseable),
+            number::int_text(r.denom(), style.parseable)
+        ),
     }
 }
 
@@ -80,6 +84,7 @@ pub(crate) fn prec(e: &Expr, style: Style) -> u8 {
         Expr::Mul(..) | Expr::Div(..) => 2,
         Expr::Neg(..) => 3,
         Expr::Pow(..) => 4,
+        Expr::Fact(..) | Expr::Prc(..) => 5,
         Expr::Num(r) => {
             let fraction = style.fmt == NumFmt::Fraction && !number::is_integer(r);
             let product = style
@@ -157,12 +162,12 @@ fn write_inner(e: &Expr, style: Style, out: &mut String) {
             out.push('-');
         }
         if !magnitude_one {
-            out.push_str(&p.abs().to_string());
+            out.push_str(&number::int_text(&p.abs(), style.parseable));
             out.push('*');
         }
         write(rest, style, 2, out);
         out.push('/');
-        out.push_str(&q.to_string());
+        out.push_str(&number::int_text(q, style.parseable));
         return;
     }
 
@@ -175,6 +180,14 @@ fn write_inner(e: &Expr, style: Style, out: &mut String) {
             let force =
                 matches!(&**a, Expr::Neg(_)) || matches!(&**a, Expr::Num(r) if r.is_negative());
             write(a, style, if force { 4 } else { 2 }, out);
+        }
+        Expr::Fact(a) => {
+            write(a, style, 5, out);
+            out.push('!');
+        }
+        Expr::Prc(a) => {
+            write(a, style, 5, out);
+            out.push('%');
         }
         Expr::Add(a, b) => {
             write(a, style, 1, out);
