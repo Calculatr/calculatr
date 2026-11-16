@@ -14,8 +14,8 @@ sync_release_to_public:
     - printf '%s' "$GITHUB_KEY" | base64 -d > ~/.ssh/id_ed25519
     - echo "" >> ~/.ssh/id_ed25519
     - chmod 600 ~/.ssh/id_ed25519
-    - eval $(ssh-agent -s)
-    - ssh-add ~/.ssh/id_ed25519
+    - printf "Host github.com gitlab.com\n  IdentityFile ~/.ssh/id_ed25519\n  IdentitiesOnly yes\n" > ~/.ssh/config
+    - chmod 600 ~/.ssh/config
     - ssh-keyscan github.com gitlab.com >> ~/.ssh/known_hosts
     - git config user.name "GitLab CI Sync"
     - git config user.email "ci@yaene.dev"
