@@ -19,6 +19,7 @@ pub enum TypstForm {
     Named,
     Sqrt,
     Cbrt,
+    Root,
     Add,
     Sub,
     Mult,
@@ -354,6 +355,8 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_cbrt)
         .complex(|a| a[0].cbrt())
         .typst(TypstForm::Cbrt),
+    // FunctionDef::new("root", &["i", "x"], "Root arbitrary base", Eval::F2::())
+    //     .typst(TypstForm::Root),
     FunctionDef::new(
         "hypot",
         &["a", "b"],

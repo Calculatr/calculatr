@@ -315,6 +315,10 @@ pub fn cbrt_exact(r: &Rational) -> Option<Rational> {
     }
 }
 
+pub fn root_exact(i: &Rational, r: &Rational) -> Option<Rational> {
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

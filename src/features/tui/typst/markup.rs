@@ -332,6 +332,13 @@ fn emit_call(name: &str, args: &[Expr], style: Style, out: &mut String) {
             emit(x, style, 0, out);
             out.push_str("))");
         }
+        (TypstForm::Root, [i, x]) => {
+            out.push_str("cstr(root(");
+            emit(i, style, 0, out);
+            out.push_str(", ");
+            emit(x, style, 0, out);
+            out.push_str("))");
+        }
         (TypstForm::Abs, [x]) => {
             out.push_str("cbr(abs(");
             emit(x, style, 0, out);
