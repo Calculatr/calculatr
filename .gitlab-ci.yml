@@ -20,8 +20,8 @@ sync_release_to_public:
     - git checkout -B release origin/release
 
     # Remotes hinzufügen
-    - git remote add github "${GITHUB_REPO}"
-    - git remote add public_gitlab "https://oauth2:${GITLAB_TOKEN}@${GITLAB_REPO}"
+    - git push --force github release:main --follow-tags
+    - git push --force public_gitlab release:main --follow-tags
 
     # Branch 'release' als 'main' auf beide Ziel-Repos pushen (inkl. Tags)
     - git push github release:main --follow-tags
