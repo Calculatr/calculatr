@@ -16,16 +16,14 @@ sync_release_to_public:
     - chmod 600 ~/.ssh/id_ed25519
     - eval $(ssh-agent -s)
     - ssh-add ~/.ssh/id_ed25519
-    - ssh-keyscan github.com >> ~/.ssh/known_hosts
+    - ssh-keyscan github.com gitlab.com >> ~/.ssh/known_hosts
     - git config user.name "GitLab CI Sync"
     - git config user.email "ci@yaene.dev"
   script:
     - git checkout -B release origin/release
 
-    # Remotes sauber anlegen oder aktualisieren
     - git remote set-url github "${GITHUB_REPO}" 2>/dev/null || git remote add github "${GITHUB_REPO}"
-    - git remote set-url public_gitlab "https://oauth2:${GITLAB_TOKEN}@${GITLAB_REPO}" 2>/dev/null || git remote add public_gitlab "https://oauth2:${GITLAB_TOKEN}@${GITLAB_REPO}"
+    - git remote set-url public_gitlab "git@gitlab.com:yanic.zehnder/calculatr.git" 2>/dev/null || git remote add public_gitlab "git@gitlab.com:yanic.zehnder/calculatr.git"
 
-    # Branch 'release' als 'main' auf beide Ziel-Repos pushen (inkl. Tags)
     - git push --force github release:main --follow-tags
     - git push --force public_gitlab release:main --follow-tags
