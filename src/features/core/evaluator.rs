@@ -678,4 +678,50 @@ mod tests {
         assert!(run(&mut env, "1 +", Decimal).contains("Error"));
         assert_eq!(run(&mut env, "", Decimal), "0");
     }
+
+    #[test]
+    fn logb_and_root_evaluation() {
+        let mut env = Environment::new();
+        // Exact rational & symbolic
+        assert_eq!(run(&mut env, "logb(2, 8)", Decimal), "3");
+        assert_eq!(run(&mut env, "logb(8, 4)", Symbolic), "2/3");
+        assert_eq!(run(&mut env, "logb(2, 1/8)", Decimal), "-3");
+        assert_eq!(run(&mut env, "logb(1/2, 8)", Decimal), "-3");
+        assert_eq!(run(&mut env, "logb(2, 1)", Decimal), "0");
+        assert_eq!(run(&mut env, "logb(2, 3)", Symbolic), "logb(2, 3)");
+        assert_eq!(run(&mut env, "logb(2, 3)", Decimal), "1.584962500721");
+        assert_eq!(run(&mut env, "logb(e, e^3)", Decimal), "3");
+
+        assert_eq!(run(&mut env, "root(3, 8)", Decimal), "2");
+        assert_eq!(run(&mut env, "root(3, -8)", Decimal), "-2");
+        assert_eq!(run(&mut env, "root(4, 16)", Symbolic), "2");
+        assert_eq!(run(&mut env, "root(4, 16/81)", Symbolic), "2/3");
+        assert_eq!(run(&mut env, "root(-2, 4)", Decimal), "0.5");
+        assert_eq!(run(&mut env, "root(-2, 4)", Symbolic), "1/2");
+        assert_eq!(run(&mut env, "root(1/2, 3)", Decimal), "9");
+        assert_eq!(run(&mut env, "root(3, 2)", Symbolic), "root(3, 2)");
+        assert_eq!(run(&mut env, "root(3, 2)", Decimal), "1.259921049895");
+        assert_eq!(run(&mut env, "root(3, 8_m^3)", Decimal), "2_m");
+
+        // Domain & arity errors in real mode
+        assert!(run(&mut env, "logb(1, 2)", Decimal).contains("undefined"));
+        assert!(run(&mut env, "logb(-2, 4)", Decimal).contains("undefined"));
+        assert!(run(&mut env, "logb(2, 0)", Decimal).contains("undefined"));
+        assert!(run(&mut env, "logb(2, -4)", Decimal).contains("undefined"));
+        assert!(run(&mut env, "logb(2)", Decimal).contains("2 arguments"));
+        assert!(run(&mut env, "root(0, 4)", Decimal).contains("zero"));
+        assert!(run(&mut env, "root(2, -4)", Decimal).contains("undefined"));
+        assert!(run(&mut env, "root(2)", Decimal).contains("2 arguments"));
+
+        // Complex mode
+        env.set_complex(true);
+        assert_eq!(run(&mut env, "root(2, -4)", Symbolic), "2*i");
+        assert_eq!(run(&mut env, "root(2, -4)", Decimal), "2*i");
+        assert_eq!(run(&mut env, "root(-2, -4)", Symbolic), "-i/2");
+        assert_eq!(run(&mut env, "root(3, -8)", Decimal), "-2");
+        assert_eq!(run(&mut env, "logb(i, -1)", Decimal), "2");
+        assert_eq!(run(&mut env, "logb(2, -1)", Decimal), "4.532360141827*i");
+        assert!(run(&mut env, "logb(1, 2)", Decimal).contains("undefined"));
+        assert!(run(&mut env, "root(0, 4)", Decimal).contains("undefined"));
+    }
 }

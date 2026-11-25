@@ -332,6 +332,20 @@ fn emit_call(name: &str, args: &[Expr], style: Style, out: &mut String) {
             emit(x, style, 0, out);
             out.push_str("))");
         }
+        (TypstForm::Root, [i, x]) => {
+            out.push_str("cstr(root(");
+            emit(i, style, 0, out);
+            out.push_str(", ");
+            emit(x, style, 0, out);
+            out.push_str("))");
+        }
+        (TypstForm::Logb, [b, x]) => {
+            out.push_str("attach(cfun(\"log\"), b: ");
+            emit(b, style, 0, out);
+            out.push_str(") cbr(lr(( ");
+            emit(x, style, 0, out);
+            out.push_str(" )))");
+        }
         (TypstForm::Abs, [x]) => {
             out.push_str("cbr(abs(");
             emit(x, style, 0, out);
@@ -431,6 +445,14 @@ mod tests {
         assert_eq!(math("1/4", NumFmt::Decimal), "cstr(frac(cnum(1), cnum(4)))");
         assert_eq!(math("x^2", NumFmt::Decimal), "attach(cvar(x), t: cnum(2))");
         assert_eq!(math("sqrt(2)", NumFmt::Decimal), "cstr(sqrt(cnum(2)))");
+        assert_eq!(
+            math("root(3, 8)", NumFmt::Decimal),
+            "cstr(root(cnum(3), cnum(8)))"
+        );
+        assert_eq!(
+            math("logb(2, 8)", NumFmt::Decimal),
+            "attach(cfun(\"log\"), b: cnum(2)) cbr(lr(( cnum(8) )))"
+        );
         assert_eq!(
             math("sin(x)", NumFmt::Decimal),
             "cfun(\"sin\") cbr(lr(( cvar(x) )))"

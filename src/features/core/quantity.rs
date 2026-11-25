@@ -1,4 +1,4 @@
-use num_traits::ToPrimitive;
+use num_traits::{ToPrimitive, Zero};
 
 use super::algebra;
 use super::ast::Expr;
@@ -102,6 +102,22 @@ pub fn split(e: &Expr) -> Result<Option<(Expr, Dimension)>, String> {
                 ("sign", [_]) => Dimension::NONE,
                 ("sqrt", [d]) => power_dimension(*d, &Rational::new(1.into(), 2.into()))?,
                 ("cbrt", [d]) => power_dimension(*d, &Rational::new(1.into(), 3.into()))?,
+                ("root", [dn, dx]) if dn.is_dimensionless() => {
+                    if dx.is_dimensionless() {
+                        Dimension::NONE
+                    } else {
+                        let idx = match algebra::simplify(&scalars[0])? {
+                            Expr::Num(r) if !r.is_zero() => r,
+                            Expr::Num(_) => return Err("root() index cannot be zero".into()),
+                            _ => {
+                                return Err(
+                                    "A quantity with a unit needs a numeric root index".into()
+                                );
+                            }
+                        };
+                        power_dimension(*dx, &idx.recip())?
+                    }
+                }
                 ("mult", [a, b]) => *a * *b,
                 ("frac", [a, b]) => *a / *b,
                 ("add" | "sub", [a, b]) if a == b => *a,
@@ -209,6 +225,14 @@ mod tests {
             Some(("4".into(), "m".into()))
         );
         assert_eq!(
+            split_text("root(3, 8_m^3)").unwrap(),
+            Some(("2".into(), "m".into()))
+        );
+        assert_eq!(
+            split_text("root(4, 16_m^4)").unwrap(),
+            Some(("2".into(), "m".into()))
+        );
+        assert_eq!(
             split_text("x * 2_m + 1_m").unwrap(),
             Some(("2*x + 1".into(), "m".into()))
         );
@@ -227,8 +251,19 @@ mod tests {
                 .unwrap_err()
                 .contains("dimensionless")
         );
+        assert!(
+            split_text("logb(2, 4_m)")
+                .unwrap_err()
+                .contains("dimensionless")
+        );
+        assert!(
+            split_text("root(2_m, 4)")
+                .unwrap_err()
+                .contains("dimensionless")
+        );
         assert!(split_text("2^(1_s)").unwrap_err().contains("Exponents"));
         assert!(split_text("sqrt(2_m)").unwrap_err().contains("power 1/2"));
+        assert!(split_text("root(2, 2_m)").unwrap_err().contains("power 1/2"));
         assert_eq!(split_text("x + 1_m").unwrap(), None);
     }
 }

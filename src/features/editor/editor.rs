@@ -231,13 +231,36 @@ impl Editor {
 
     pub fn paste_and_insert(&mut self, text: &str) {
         self.snapshot();
-        if self.mode != Mode::Insert && !self.buffer.is_empty() {
+        if !text.is_empty() {
+            self.prepare_paste_target(self.mode != Mode::Insert);
+        } else if self.mode != Mode::Insert && !self.buffer.is_empty() {
             self.buffer.set_cursor(self.buffer.cursor() + 1);
         }
         self.mode = Mode::Insert;
         self.pending = Pending::default();
         self.comp = None;
-        self.buffer.insert_str(text);
+        if !text.is_empty() {
+            self.buffer.insert_str(text);
+        }
+    }
+
+    fn prepare_paste_target(&mut self, after: bool) {
+        if self.buffer.placeholder().is_some() {
+            return;
+        }
+        let cursor = self.buffer.cursor();
+        if let Some(start) = self.buffer.placeholder_covering(cursor) {
+            self.buffer.select_placeholder_at(start);
+            return;
+        }
+        if after && !self.buffer.is_empty() {
+            let next = cursor + 1;
+            if self.buffer.is_placeholder_at(next) {
+                self.buffer.select_placeholder_at(next);
+            } else {
+                self.buffer.set_cursor(next);
+            }
+        }
     }
 
     // --- key handling -------------------------------------------------------
@@ -479,12 +502,7 @@ impl Editor {
             return;
         }
         self.snapshot();
-        let at = if after && !self.buffer.is_empty() {
-            self.buffer.cursor() + 1
-        } else {
-            self.buffer.cursor()
-        };
-        self.buffer.set_cursor(at);
+        self.prepare_paste_target(after);
         let text = self.register.clone();
         self.buffer.insert_str(&text);
         self.buffer
@@ -906,6 +924,79 @@ mod tests {
         let mut ed = Editor::new();
         ed.paste_and_insert("abc");
         assert_eq!(text(&ed), "abc");
+    }
+
+    #[test]
+    fn pasting_replaces_placeholders_in_all_cursor_positions() {
+        // Leaving from selected placeholder (e.g. Up to history or F3 to variables)
+        let mut ed = typed("frac<Tab><Up>");
+        ed.paste_and_insert("12");
+        assert_eq!(text(&ed), "frac(12, <>)");
+        assert_eq!(ed.mode(), Mode::Insert);
+        keys(&mut ed, "<Tab>");
+        ed.leave();
+        ed.paste_and_insert("x");
+        assert_eq!(text(&ed), "frac(12, x)");
+
+        // Undo restores the placeholder
+        keys(&mut ed, "<Esc>u");
+        assert_eq!(text(&ed), "frac(12, <>)");
+
+        // Normal mode cursor directly on '<' (would previously produce frac(<42>, <>))
+        let mut ed = typed("frac<Tab><Esc>l");
+        assert_eq!(ed.buffer.cursor(), 5);
+        ed.paste_and_insert("42");
+        assert_eq!(text(&ed), "frac(42, <>)");
+
+        // Normal mode cursor directly on '>'
+        let mut ed = typed("frac<Tab><Esc>ll");
+        assert_eq!(ed.buffer.cursor(), 6);
+        ed.paste_and_insert("42");
+        assert_eq!(text(&ed), "frac(42, <>)");
+
+        // Placeholder at index 0
+        let mut ed = Editor::new();
+        ed.buffer = InputBuffer::from_text("<> + 1");
+        ed.buffer.select_placeholder_at(0);
+        ed.leave();
+        ed.paste_and_insert("9");
+        assert_eq!(text(&ed), "9 + 1");
+
+        // Bracketed paste while in insert mode on a placeholder
+        let mut ed = typed("frac<Tab>");
+        ed.paste_and_insert("7");
+        assert_eq!(text(&ed), "frac(7, <>)");
+
+        // Empty paste does not delete an existing placeholder
+        let mut ed = typed("frac<Tab><Up>");
+        ed.paste_and_insert("");
+        assert_eq!(text(&ed), "frac(<>, <>)");
+    }
+
+    #[test]
+    fn normal_mode_paste_replaces_targeted_placeholder() {
+        // p right before placeholder (after leaving insert mode from placeholder)
+        let mut ed = typed("frac<Tab><Esc>");
+        ed.load_register("42".into());
+        keys(&mut ed, "p");
+        assert_eq!(text(&ed), "frac(42, <>)");
+
+        // P before '(' does not eat the placeholder
+        let mut ed = typed("frac<Tab><Esc>");
+        ed.load_register("2".into());
+        keys(&mut ed, "P");
+        assert_eq!(text(&ed), "frac2(<>, <>)");
+
+        // p and P directly on '<' or '>' replace the placeholder
+        let mut ed = typed("frac<Tab><Esc>l");
+        ed.load_register("42".into());
+        keys(&mut ed, "p");
+        assert_eq!(text(&ed), "frac(42, <>)");
+
+        let mut ed = typed("frac<Tab><Esc>ll");
+        ed.load_register("42".into());
+        keys(&mut ed, "P");
+        assert_eq!(text(&ed), "frac(42, <>)");
     }
 
     #[test]
