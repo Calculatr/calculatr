@@ -373,6 +373,52 @@ mod tests {
         assert_eq!(input(&app), "abc");
     }
 
+    #[test]
+    fn history_and_variables_replace_autocomplete_placeholders() {
+        let mut app = app();
+        submit(&mut app, "d := 4");
+        submit(&mut app, "12");
+
+        type_text(&mut app, "frac");
+        app.on_key(key(KeyCode::Tab));
+        assert_eq!(input(&app), "frac(<>, <>)");
+
+        // Insert from history into first placeholder
+        app.on_key(key(KeyCode::Up));
+        assert_eq!(app.focus, Focus::History);
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(app.focus, Focus::Input);
+        assert_eq!(input(&app), "frac(12, <>)");
+
+        // Tab to second placeholder and insert from variables drawer
+        app.on_key(key(KeyCode::Tab));
+        app.on_key(key(KeyCode::F(3)));
+        assert_eq!(app.focus, Focus::Variables);
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(app.focus, Focus::Input);
+        assert_eq!(input(&app), "frac(12, d)");
+
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(last_answer(&app), "3");
+    }
+
+    #[test]
+    fn history_insert_with_normal_cursor_on_placeholder_replaces_it() {
+        let mut app = app();
+        submit(&mut app, "5");
+
+        type_text(&mut app, "frac");
+        app.on_key(key(KeyCode::Tab));
+        // Normal mode, move cursor directly onto '<'
+        app.on_key(key(KeyCode::Esc));
+        app.on_key(key(KeyCode::Char('l')));
+        app.on_key(key(KeyCode::Char('k')));
+        assert_eq!(app.focus, Focus::History);
+        app.on_key(key(KeyCode::Enter));
+        assert_eq!(app.focus, Focus::Input);
+        assert_eq!(input(&app), "frac(5, <>)");
+    }
+
     fn submit(app: &mut App, text: &str) {
         type_text(app, text);
         app.on_key(key(KeyCode::Enter));
