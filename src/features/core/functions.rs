@@ -19,6 +19,8 @@ pub enum TypstForm {
     Named,
     Sqrt,
     Cbrt,
+    Root,
+    Logb,
     Add,
     Sub,
     Mult,
@@ -105,6 +107,20 @@ fn exact_sqrt(a: &[Rational]) -> Option<Rational> {
 fn exact_cbrt(a: &[Rational]) -> Option<Rational> {
     match a {
         [x] => number::cbrt_exact(x),
+        _ => None,
+    }
+}
+
+fn exact_root(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [n, x] => number::root_exact(n, x),
+        _ => None,
+    }
+}
+
+fn exact_logb(a: &[Rational]) -> Option<Rational> {
+    match a {
+        [b, x] => number::log_exact(b, x),
         _ => None,
     }
 }
@@ -270,6 +286,111 @@ fn num_mod(a: &[f64]) -> Result<f64, String> {
     }
 }
 
+fn num_logb(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [b, x] => {
+            if *b <= 0.0 || *b == 1.0 || *x <= 0.0 {
+                return Err("logb() is undefined for this input".into());
+            }
+            if *b == 2.0 {
+                Ok(x.log2())
+            } else if *b == 10.0 {
+                Ok(x.log10())
+            } else if *b == std::f64::consts::E {
+                Ok(x.ln())
+            } else {
+                Ok(x.log(*b))
+            }
+        }
+        _ => unreachable!("arity is checked by `call`"),
+    }
+}
+
+fn num_root(a: &[f64]) -> Result<f64, String> {
+    match a {
+        [n, x] => {
+            if *n == 0.0 {
+                return Err("root() index cannot be zero".into());
+            }
+            if *x == 0.0 {
+                return if n.is_finite() && *n > 0.0 {
+                    Ok(0.0)
+                } else if *n < 0.0 {
+                    Err("Division by zero".into())
+                } else {
+                    Err("root() is undefined for this input".into())
+                };
+            }
+            if *x < 0.0 {
+                if let Some(k) = number::to_int_exact(*n) {
+                    if k % 2 != 0 {
+                        let abs_k = k.unsigned_abs();
+                        let mag = match abs_k {
+                            1 => -*x,
+                            3 => (-*x).cbrt(),
+                            _ => (-*x).powf(1.0 / (abs_k as f64)),
+                        };
+                        return Ok(if k < 0 { -1.0 / mag } else { -mag });
+                    }
+                    return Err("root() is undefined for this input".into());
+                }
+                let inv = 1.0 / *n;
+                if let Some(m) = number::to_int_exact(inv) {
+                    return Ok(x.powf(m as f64));
+                }
+                return Err("root() is undefined for this input".into());
+            }
+            if *n == 1.0 {
+                Ok(*x)
+            } else if *n == -1.0 {
+                Ok(1.0 / *x)
+            } else if *n == 2.0 {
+                Ok(x.sqrt())
+            } else if *n == -2.0 {
+                Ok(1.0 / x.sqrt())
+            } else if *n == 3.0 {
+                Ok(x.cbrt())
+            } else if *n == -3.0 {
+                Ok(1.0 / x.cbrt())
+            } else {
+                Ok(x.powf(1.0 / *n))
+            }
+        }
+        _ => unreachable!("arity is checked by `call`"),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Complex hooks
+// ---------------------------------------------------------------------------
+
+fn complex_logb(a: &[Complex64]) -> Complex64 {
+    let [b, x] = [a[0], a[1]];
+    if b.is_zero() || x.is_zero() || (b.re == 1.0 && b.im == 0.0) {
+        return Complex64::new(f64::NAN, f64::NAN);
+    }
+    x.ln() / b.ln()
+}
+
+fn complex_root(a: &[Complex64]) -> Complex64 {
+    let [n, x] = [a[0], a[1]];
+    if n.is_zero() {
+        return Complex64::new(f64::NAN, f64::NAN);
+    }
+    if x.is_zero() {
+        return if n.im == 0.0 && n.re > 0.0 {
+            Complex64::zero()
+        } else {
+            Complex64::new(f64::NAN, f64::NAN)
+        };
+    }
+    if n.im == 0.0 && n.re == 2.0 {
+        x.sqrt()
+    } else {
+        x.powc(n.inv())
+    }
+}
+
 // ---------------------------------------------------------------------------
 // The registry
 // ---------------------------------------------------------------------------
@@ -345,6 +466,15 @@ pub static FUNCTIONS: &[FunctionDef] = &[
     FunctionDef::new("log2", &["x"], "Base-2 logarithm", Eval::F1(f64::log2))
         .exact(zero_at_one)
         .complex(|a| a[0].log(2.0)),
+    FunctionDef::new(
+        "logb",
+        &["b", "x"],
+        "Logarithm of x with base b",
+        Eval::Checked(num_logb),
+    )
+    .exact(exact_logb)
+    .complex(complex_logb)
+    .typst(TypstForm::Logb),
     // Algebra
     FunctionDef::new("sqrt", &["x"], "Square root", Eval::F1(f64::sqrt))
         .exact(exact_sqrt)
@@ -354,6 +484,15 @@ pub static FUNCTIONS: &[FunctionDef] = &[
         .exact(exact_cbrt)
         .complex(|a| a[0].cbrt())
         .typst(TypstForm::Cbrt),
+    FunctionDef::new(
+        "root",
+        &["n", "x"],
+        "nth root of x",
+        Eval::Checked(num_root),
+    )
+    .exact(exact_root)
+    .complex(complex_root)
+    .typst(TypstForm::Root),
     FunctionDef::new(
         "hypot",
         &["a", "b"],
@@ -604,5 +743,61 @@ mod tests {
         assert_eq!(call_exact("sqrt", &[number::int(2)]), None);
         assert_eq!(call_exact("cos", &[number::int(0)]), Some(number::int(1)));
         assert_eq!(call_exact("sin", &[number::int(1)]), None);
+        assert_eq!(
+            call_exact("root", &[number::int(3), number::int(27)]),
+            Some(number::int(3))
+        );
+        assert_eq!(
+            call_exact("root", &[number::int(3), number::int(-27)]),
+            Some(number::int(-3))
+        );
+        assert_eq!(call_exact("root", &[number::int(2), number::int(2)]), None);
+        assert_eq!(
+            call_exact("logb", &[number::int(2), number::int(8)]),
+            Some(number::int(3))
+        );
+        assert_eq!(
+            call_exact("logb", &[number::int(8), number::int(4)]),
+            Some(Rational::new(2.into(), 3.into()))
+        );
+        assert_eq!(call_exact("logb", &[number::int(2), number::int(3)]), None);
+    }
+
+    #[test]
+    fn logb_and_root_numeric_and_complex() {
+        assert!((call("logb", &[2.0, 8.0]).unwrap() - 3.0).abs() < 1e-12);
+        assert!((call("logb", &[3.0, 9.0]).unwrap() - 2.0).abs() < 1e-12);
+        assert!((call("logb", &[std::f64::consts::E, 1.0]).unwrap()).abs() < 1e-12);
+        assert!(call("logb", &[1.0, 2.0]).is_err());
+        assert!(call("logb", &[0.0, 2.0]).is_err());
+        assert!(call("logb", &[-2.0, 4.0]).is_err());
+        assert!(call("logb", &[2.0, 0.0]).is_err());
+        assert!(call("logb", &[2.0, -4.0]).is_err());
+        assert!(call("logb", &[2.0]).is_err());
+
+        assert!((call("root", &[3.0, 8.0]).unwrap() - 2.0).abs() < 1e-12);
+        assert!((call("root", &[3.0, -8.0]).unwrap() + 2.0).abs() < 1e-12);
+        assert!((call("root", &[4.0, 16.0]).unwrap() - 2.0).abs() < 1e-12);
+        assert!((call("root", &[-2.0, 4.0]).unwrap() - 0.5).abs() < 1e-12);
+        assert!((call("root", &[0.5, 3.0]).unwrap() - 9.0).abs() < 1e-12);
+        assert!((call("root", &[3.0, 0.0]).unwrap()).abs() < 1e-12);
+        assert!(call("root", &[0.0, 4.0]).is_err());
+        assert!(call("root", &[-2.0, 0.0]).is_err());
+        assert!(call("root", &[2.0, -4.0]).is_err());
+        assert!(call("root", &[2.0]).is_err());
+
+        let c_root =
+            call_complex("root", &[Complex64::new(2.0, 0.0), Complex64::new(-4.0, 0.0)]).unwrap();
+        assert!(c_root.re.abs() < 1e-12 && (c_root.im - 2.0).abs() < 1e-12);
+        assert!(
+            call_complex("root", &[Complex64::new(0.0, 0.0), Complex64::new(4.0, 0.0)]).is_err()
+        );
+
+        let c_logb =
+            call_complex("logb", &[Complex64::new(0.0, 1.0), Complex64::new(-1.0, 0.0)]).unwrap();
+        assert!((c_logb.re - 2.0).abs() < 1e-12 && c_logb.im.abs() < 1e-12);
+        assert!(
+            call_complex("logb", &[Complex64::new(1.0, 0.0), Complex64::new(2.0, 0.0)]).is_err()
+        );
     }
 }

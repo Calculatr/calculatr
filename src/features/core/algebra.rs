@@ -586,6 +586,24 @@ fn exact_complex(e: &Expr) -> Option<Cx> {
                     sqrt_exact(&re).map(|root| (root, zero()))
                 }
             }
+            ("root", [n, x]) => {
+                let (n_re, n_im) = exact_complex(n)?;
+                let (x_re, x_im) = exact_complex(x)?;
+                if !n_im.is_zero() || !x_im.is_zero() {
+                    return None;
+                }
+                if let Some(root) = number::root_exact(&n_re, &x_re) {
+                    return Some((root, zero()));
+                }
+                if x_re.is_negative() && n_re == number::int(2) {
+                    sqrt_exact(&-x_re).map(|root| (zero(), root))
+                } else if x_re.is_negative() && n_re == number::int(-2) {
+                    sqrt_exact(&-x_re)
+                        .and_then(|root| cx_div(&(Rational::one(), zero()), &(zero(), root)))
+                } else {
+                    None
+                }
+            }
             ("abs", [x]) => {
                 let (re, im) = exact_complex(x)?;
                 sqrt_exact(&(&re * &re + &im * &im)).map(|norm| (norm, zero()))
@@ -605,7 +623,9 @@ fn mentions_call(e: &Expr, name: &str) -> bool {
 pub fn complex_exact(e: &Expr) -> Expr {
     if e.is_closed()
         && !matches!(e, Expr::Eq(..))
-        && (e.contains_constant(MathConstant::I) || mentions_call(e, "sqrt"))
+        && (e.contains_constant(MathConstant::I)
+            || mentions_call(e, "sqrt")
+            || mentions_call(e, "root"))
         && let Some((re, im)) = exact_complex(e)
     {
         return complex_expr(re, im);
@@ -666,6 +686,13 @@ mod tests {
     fn functions_stay_symbolic_unless_exact() {
         assert_eq!(simp("sqrt(16)"), "4");
         assert_eq!(simp("sqrt(2)"), "sqrt(2)");
+        assert_eq!(simp("root(3, 27)"), "3");
+        assert_eq!(simp("root(3, -8)"), "-2");
+        assert_eq!(simp("root(4, 16/81)"), "2/3");
+        assert_eq!(simp("root(3, 2)"), "root(3, 2)");
+        assert_eq!(simp("logb(2, 8)"), "3");
+        assert_eq!(simp("logb(8, 4)"), "2/3");
+        assert_eq!(simp("logb(2, 3)"), "logb(2, 3)");
         assert_eq!(simp("frac(1, 4)"), "1/4");
         assert_eq!(simp("sin(0)"), "0");
         assert_eq!(simp("sin(1)"), "sin(1)");

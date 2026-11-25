@@ -1,3 +1,4 @@
+use num_traits::{One, ToPrimitive};
 use ratatui::{
     Frame,
     layout::{Constraint, Layout, Rect},
@@ -12,6 +13,7 @@ use super::highlighter::tokenize;
 use super::images::fade_level;
 use super::theme::{LineRole, Theme, fade};
 use crate::app::{App, Focus};
+use crate::features::core::ast::Expr;
 use crate::features::core::number::NumFmt;
 use crate::features::core::{Answer, RenderMode, completions};
 use crate::features::editor::Mode;
@@ -72,6 +74,7 @@ fn typst_source(app: &mut App, line: usize) -> Option<String> {
             .display
             .input_source(entry, &app.theme)
             .map(str::to_owned),
+        LineKind::Result if is_the_answer(&entry.answer) => None,
         LineKind::Result => match app.display.result(entry, display_key(app), &app.theme) {
             View::Ready(r) => r.typst.clone(),
             View::Stale(_) | View::Pending => None,
@@ -139,11 +142,15 @@ fn line_pieces(app: &mut App, line: usize) -> Vec<(String, Color)> {
                 Answer::Error(_) => theme.error,
                 Answer::Message(_) => theme.message,
             };
-            match app.display.result(entry, key, theme) {
+            let mut pieces = match app.display.result(entry, key, theme) {
                 View::Ready(r) => vec![(r.text.clone(), color)],
                 View::Stale(r) => vec![(r.text.clone(), theme.dim)],
                 View::Pending => vec![("formatting…".to_string(), theme.dim)],
+            };
+            if is_the_answer(&entry.answer) {
+                pieces = vec![(THE_ANSWER.to_string(), color)];
             }
+            pieces
         }
     }
 }
@@ -584,6 +591,20 @@ fn draw_input(f: &mut Frame, app: &App, area: Rect) {
         f.set_cursor_position((text_rect.x + (cursor - scroll) as u16, text_rect.y));
     } else if app.focus == Focus::Variables && app.var_filter_active {
     }
+}
+
+const THE_ANSWER: &str =
+    "The Answer to the Ultimate Question of Life, the Universe, and Everything";
+
+fn is_the_answer(answer: &Answer) -> bool {
+    matches!(
+        answer,
+        Answer::Value {
+            expr: Expr::Num(r),
+            unit: None,
+            ..
+        } if r.denom().is_one() && r.numer().to_i64() == Some(42)
+    )
 }
 
 #[cfg(test)]
