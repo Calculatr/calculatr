@@ -311,6 +311,20 @@ impl InputBuffer {
         self.find_placeholder(0).is_some()
     }
 
+    pub fn is_placeholder_at(&self, pos: usize) -> bool {
+        let len = PLACEHOLDER.len();
+        pos + len <= self.chars.len()
+            && self.chars[pos..pos + len]
+                .iter()
+                .copied()
+                .eq(PLACEHOLDER.chars())
+    }
+
+    pub fn placeholder_covering(&self, pos: usize) -> Option<usize> {
+        let len = PLACEHOLDER.len();
+        (pos.saturating_sub(len - 1)..=pos).find(|&start| self.is_placeholder_at(start))
+    }
+
     pub fn select_placeholder_at(&mut self, start: usize) {
         self.cursor = start;
         self.placeholder = Some(start);
@@ -489,6 +503,36 @@ mod tests {
         b.insert_char('4', true);
         assert_eq!(b.text(), "frac(3, 4)");
         assert!(!b.select_next_placeholder());
+    }
+
+    #[test]
+    fn placeholder_detection_at_and_covering_positions() {
+        let b = InputBuffer::from_text("frac(<>, <>)");
+        assert!(!b.is_placeholder_at(4));
+        assert!(b.is_placeholder_at(5));
+        assert!(!b.is_placeholder_at(6));
+        assert!(b.is_placeholder_at(9));
+        assert!(!b.is_placeholder_at(11));
+
+        assert_eq!(b.placeholder_covering(4), None);
+        assert_eq!(b.placeholder_covering(5), Some(5));
+        assert_eq!(b.placeholder_covering(6), Some(5));
+        assert_eq!(b.placeholder_covering(7), None);
+        assert_eq!(b.placeholder_covering(8), None);
+        assert_eq!(b.placeholder_covering(9), Some(9));
+        assert_eq!(b.placeholder_covering(10), Some(9));
+        assert_eq!(b.placeholder_covering(11), None);
+        assert_eq!(b.placeholder_covering(12), None);
+
+        let b0 = InputBuffer::from_text("<>");
+        assert!(b0.is_placeholder_at(0));
+        assert_eq!(b0.placeholder_covering(0), Some(0));
+        assert_eq!(b0.placeholder_covering(1), Some(0));
+        assert_eq!(b0.placeholder_covering(2), None);
+
+        let empty = InputBuffer::new();
+        assert!(!empty.is_placeholder_at(0));
+        assert_eq!(empty.placeholder_covering(0), None);
     }
 
     #[test]
