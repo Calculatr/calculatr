@@ -1,4 +1,5 @@
 use num_bigint::BigInt;
+use num_integer::Integer;
 use num_rational::BigRational;
 use num_traits::{One, Signed, ToPrimitive, Zero};
 
@@ -315,8 +316,120 @@ pub fn cbrt_exact(r: &Rational) -> Option<Rational> {
     }
 }
 
-pub fn root_exact(i: &Rational, r: &Rational) -> Option<Rational> {
-    None
+fn nth_root_bigint(a: &BigInt, k: u64) -> Option<BigInt> {
+    if k == 0 || a.is_negative() {
+        return None;
+    }
+    if k == 1 || a.is_zero() || a.is_one() {
+        return Some(a.clone());
+    }
+    // For any integer r >= 2, r^k >= 2^k has at least k + 1 bits.
+    if k >= a.bits() {
+        return None;
+    }
+    let k_u32 = u32::try_from(k).ok()?;
+    let root = a.nth_root(k_u32);
+    if &root.pow(k_u32) == a {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+pub fn root_exact(index: &Rational, radicand: &Rational) -> Option<Rational> {
+    if index.is_zero() {
+        return None;
+    }
+    if radicand.is_zero() {
+        return (!index.is_negative()).then(Rational::zero);
+    }
+
+    let p = index.numer();
+    let q = index.denom();
+    let p_neg = p.is_negative();
+    let p_abs = p.abs();
+
+    let neg_radicand = radicand.is_negative();
+    if neg_radicand && p_abs.is_even() {
+        return None;
+    }
+
+    let mag = radicand.abs();
+    let base_root = if mag.is_one() {
+        Rational::one()
+    } else {
+        let k = p_abs.to_u64()?;
+        let n = nth_root_bigint(mag.numer(), k)?;
+        let d = nth_root_bigint(mag.denom(), k)?;
+        Rational::new_raw(n, d)
+    };
+    let signed_root = if neg_radicand { -base_root } else { base_root };
+    let exp = if p_neg {
+        Rational::from_integer(-q.clone())
+    } else {
+        Rational::from_integer(q.clone())
+    };
+    pow_int(&signed_root, &exp)
+}
+
+pub fn log_exact(base: &Rational, x: &Rational) -> Option<Rational> {
+    if !base.is_positive() || base.is_one() || !x.is_positive() {
+        return None;
+    }
+    if x.is_one() {
+        return Some(Rational::zero());
+    }
+
+    let mut negate = false;
+    let b = if base < &Rational::one() {
+        negate = !negate;
+        base.recip()
+    } else {
+        base.clone()
+    };
+    let x = if x < &Rational::one() {
+        negate = !negate;
+        x.recip()
+    } else {
+        x.clone()
+    };
+
+    let mut bn = b.numer().clone();
+    let mut bd = b.denom().clone();
+    let mut xn = x.numer().clone();
+    let mut xd = x.denom().clone();
+
+    let mut steps: Vec<u64> = Vec::new();
+    loop {
+        let mut count = 0u64;
+        while &xn * &bd > &bn * &xd {
+            let (qn, rn) = xn.div_rem(&bn);
+            if !rn.is_zero() {
+                return None;
+            }
+            let (qd, rd) = xd.div_rem(&bd);
+            if !rd.is_zero() {
+                return None;
+            }
+            xn = qn;
+            xd = qd;
+            count += 1;
+        }
+        if xn == bn && xd == bd {
+            steps.push(count + 1);
+            break;
+        }
+        steps.push(count);
+        std::mem::swap(&mut bn, &mut xn);
+        std::mem::swap(&mut bd, &mut xd);
+    }
+
+    let mut it = steps.into_iter().rev();
+    let mut result = Rational::from_integer(BigInt::from(it.next()?));
+    for k in it {
+        result = Rational::from_integer(BigInt::from(k)) + result.recip();
+    }
+    Some(if negate { -result } else { result })
 }
 
 #[cfg(test)]
@@ -365,5 +478,60 @@ mod tests {
         assert_eq!(sqrt_exact(&int(16)), Some(int(4)));
         assert_eq!(sqrt_exact(&r("0.25")), Some(r("0.5")));
         assert_eq!(sqrt_exact(&int(2)), None);
+    }
+
+    #[test]
+    fn root_exact_cases() {
+        let frac = |n: i64, d: i64| Rational::new(n.into(), d.into());
+
+        assert_eq!(root_exact(&int(2), &int(9)), Some(int(3)));
+        assert_eq!(root_exact(&int(3), &int(8)), Some(int(2)));
+        assert_eq!(root_exact(&int(3), &int(-8)), Some(int(-2)));
+        assert_eq!(root_exact(&int(5), &int(-32)), Some(int(-2)));
+        assert_eq!(root_exact(&int(4), &frac(16, 81)), Some(frac(2, 3)));
+        assert_eq!(root_exact(&int(-2), &frac(4, 9)), Some(frac(3, 2)));
+        assert_eq!(root_exact(&int(-3), &int(-8)), Some(frac(-1, 2)));
+        assert_eq!(root_exact(&int(1), &int(-5)), Some(int(-5)));
+        assert_eq!(root_exact(&int(-1), &int(5)), Some(frac(1, 5)));
+        assert_eq!(root_exact(&frac(1, 2), &int(3)), Some(int(9)));
+        assert_eq!(root_exact(&frac(2, 3), &int(4)), Some(int(8)));
+        assert_eq!(root_exact(&frac(3, 2), &int(-8)), Some(int(4)));
+        assert_eq!(root_exact(&int(3), &int(0)), Some(int(0)));
+        assert_eq!(root_exact(&int(1000), &int(1)), Some(int(1)));
+        assert_eq!(root_exact(&int(3), &int(-1)), Some(int(-1)));
+
+        assert_eq!(root_exact(&int(0), &int(4)), None);
+        assert_eq!(root_exact(&int(-2), &int(0)), None);
+        assert_eq!(root_exact(&int(2), &int(-4)), None);
+        assert_eq!(root_exact(&int(4), &int(-16)), None);
+        assert_eq!(root_exact(&int(3), &int(2)), None);
+        assert_eq!(root_exact(&int(100), &int(2)), None);
+    }
+
+    #[test]
+    fn log_exact_cases() {
+        let frac = |n: i64, d: i64| Rational::new(n.into(), d.into());
+
+        assert_eq!(log_exact(&int(2), &int(1)), Some(int(0)));
+        assert_eq!(log_exact(&frac(1, 2), &int(1)), Some(int(0)));
+        assert_eq!(log_exact(&int(2), &int(8)), Some(int(3)));
+        assert_eq!(log_exact(&int(10), &int(1000)), Some(int(3)));
+        assert_eq!(log_exact(&int(8), &int(4)), Some(frac(2, 3)));
+        assert_eq!(log_exact(&int(4), &int(8)), Some(frac(3, 2)));
+        assert_eq!(log_exact(&frac(9, 4), &frac(27, 8)), Some(frac(3, 2)));
+        assert_eq!(log_exact(&int(2), &frac(1, 8)), Some(int(-3)));
+        assert_eq!(log_exact(&frac(1, 2), &int(8)), Some(int(-3)));
+        assert_eq!(log_exact(&frac(1, 2), &frac(1, 8)), Some(int(3)));
+        assert_eq!(log_exact(&int(4), &frac(1, 8)), Some(frac(-3, 2)));
+
+        assert_eq!(log_exact(&int(2), &int(3)), None);
+        assert_eq!(log_exact(&int(2), &int(6)), None);
+        assert_eq!(log_exact(&frac(3, 2), &frac(4, 3)), None);
+        assert_eq!(log_exact(&int(1), &int(1)), None);
+        assert_eq!(log_exact(&int(1), &int(2)), None);
+        assert_eq!(log_exact(&int(0), &int(2)), None);
+        assert_eq!(log_exact(&int(-2), &int(4)), None);
+        assert_eq!(log_exact(&int(2), &int(0)), None);
+        assert_eq!(log_exact(&int(2), &int(-4)), None);
     }
 }

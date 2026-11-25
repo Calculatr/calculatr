@@ -58,6 +58,10 @@ mod tests {
             "1e",
             "exp(1)",
             "ln(2)",
+            "logb(2, 8)",
+            "logb(b, x)",
+            "root(3, 8)",
+            "root(n, x)",
         ];
         for src in inputs {
             let Ok(stmt) = parse_stmt(src) else { continue };
